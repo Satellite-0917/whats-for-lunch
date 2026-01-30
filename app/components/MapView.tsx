@@ -8,26 +8,29 @@ declare global {
   }
 }
 
-/** ✅ 등록된 장소(마커) 데이터 타입 */
+/** ✅ 등록된 장소(마커) 데이터 타입
+ *  lat/lng는 숫자 or 문자열 둘 다 허용 (DB/JSON에서 문자열로 오는 경우 대응)
+ */
 export type Place = {
   id: string;
   name: string;
   category: string; // "한식" "일식" ...
-  lat: number;
-  lng: number;
+  lat: number | string;
+  lng: number | string;
 };
 
 type MapViewProps = {
   title: string;
   subtitle: string;
   selectedName?: string;
+
+  /** 기존 UI 표시용(있으면 쓰고 없으면 그냥 0으로) */
   markerCount: number;
 
-  /**
-   * ✅ 추가 기능(옵션)
-   * - 안 넘기면 기존처럼 회사 마커만 표시됨(빌드 안 깨짐)
-   */
+  /** ✅ 추가 기능(옵션): 등록된 장소들 */
   places?: Place[];
+
+  /** ✅ 추가 기능(옵션): 선택된 카테고리들 */
   selectedCategories?: string[];
 };
 
@@ -44,7 +47,7 @@ export default function MapView({
 
   const companyMarkerRef = useRef<any>(null);
   const placeMarkersRef = useRef<Record<string, any>>({});
-  const iconCacheRef = useRef<Record<string, string>>({});
+  const iconCacheRef = useRef<Record<string, string>>({}); // color -> dataUrl
 
   const ncpKeyId = process.env.NEXT_PUBLIC_NAVER_MAP_CLIENT_ID;
   const companyLat = Number(process.env.NEXT_PUBLIC_COMPANY_LAT ?? '37.507520');
@@ -68,7 +71,7 @@ export default function MapView({
     []
   );
 
-  // ✅ 작은 회사 아이콘(기존 유지)
+  /** ✅ 작은 회사(빌딩) 아이콘 SVG (기존 유지) */
   const companyIconUrl = useMemo(() => {
     const svg = `
       <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 28 28">
@@ -96,7 +99,7 @@ export default function MapView({
     return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
   }, []);
 
-  /** ✅ 색 핀 SVG (파일 없이 생성) */
+  /** ✅ 카테고리 색 핀 SVG 만들기 (파일 없음) */
   const makePinSvgDataUrl = (color: string) => {
     const svg = `
       <svg xmlns="http://www.w3.org/2000/svg" width="32" height="40" viewBox="0 0 32 40">
@@ -109,6 +112,7 @@ export default function MapView({
     return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
   };
 
+  /** ✅ 카테고리 -> 아이콘 URL (색상별 캐시) */
   const getIconUrlByCategory = (category: string) => {
     const color = CATEGORY_COLOR[category] ?? '#666666';
     if (!iconCacheRef.current[color]) {
@@ -117,6 +121,7 @@ export default function MapView({
     return iconCacheRef.current[color];
   };
 
+  /** ✅ 필터 적용: 선택 없으면 전체 표시 */
   const isVisibleByFilter = (category: string) => {
     if (!selectedCategories || selectedCategories.length === 0) return true;
     return selectedCategories.includes(category);
@@ -140,6 +145,7 @@ export default function MapView({
         script.setAttribute('data-naver-maps', 'true');
         script.async = true;
         script.defer = true;
+
         script.src = `https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=${encodeURIComponent(ncpKeyId)}`;
 
         script.onload = () => resolve();
@@ -157,6 +163,7 @@ export default function MapView({
 
         const center = new naver.maps.LatLng(companyLat, companyLng);
 
+        // ✅ 지도 생성(한 번만)
         if (!mapInstanceRef.current) {
           mapInstanceRef.current = new naver.maps.Map(mapRef.current, {
             center,
@@ -188,20 +195,27 @@ export default function MapView({
           companyMarkerRef.current.setMap(map);
         }
 
-        // ✅ 장소 마커 생성/갱신
+        // ✅ 장소 마커 생성/갱신 (핵심: lat/lng를 Number로 변환)
         for (const p of places) {
           if (!p?.id) continue;
-          if (!Number.isFinite(p.lat) || !Number.isFinite(p.lng)) {
+
+          const lat = Number(p.lat);
+          const lng = Number(p.lng);
+
+          if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
             console.warn('좌표 이상(스킵):', p);
             continue;
           }
 
+          const position = new naver.maps.LatLng(lat, lng);
+
           if (placeMarkersRef.current[p.id]) {
-            placeMarkersRef.current[p.id].setPosition(new naver.maps.LatLng(p.lat, p.lng));
+            placeMarkersRef.current[p.id].setPosition(position);
           } else {
             const iconUrl = getIconUrlByCategory(p.category);
+
             placeMarkersRef.current[p.id] = new naver.maps.Marker({
-              position: new naver.maps.LatLng(p.lat, p.lng),
+              position,
               map,
               title: p.name,
               icon: {
@@ -222,7 +236,7 @@ export default function MapView({
           marker.setMap(isVisibleByFilter(p.category) ? map : null);
         }
 
-        // ✅ places에서 삭제된 항목 마커 제거
+        // ✅ places에서 제거된 항목은 마커도 제거(동기화)
         const keep = new Set(places.map((p) => p.id));
         for (const [id, marker] of Object.entries(placeMarkersRef.current)) {
           if (!keep.has(id)) {
