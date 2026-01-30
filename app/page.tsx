@@ -228,11 +228,7 @@ export default function HomePage() {
                   key={category}
                   type="button"
                   className={`chip ${isSelected ? 'selected' : ''}`}
-                  style={
-                    isSelected
-                      ? { backgroundColor: color }
-                      : { borderColor: color, color: color }
-                  }
+                  style={isSelected ? { backgroundColor: color } : { borderColor: color, color: color }}
                   onClick={() => handleToggleCategory(category)}
                 >
                   {category}
@@ -245,11 +241,14 @@ export default function HomePage() {
 
       {tab === 'map' && (
         <>
+          {/* ✅ 여기만 핵심 수정: MapView에 places + selectedCategories 넘기기 */}
           <MapView
             title="오늘 뭐 먹지?"
             subtitle={mapSubtitle}
             selectedName={selectedPlace?.name}
             markerCount={filteredPlaces.length}
+            places={filteredPlaces} // ✅ 마커로 찍을 데이터
+            selectedCategories={Array.from(selectedCategories)} // ✅ Set -> Array로 변환
           />
 
           <BottomSheet mode={sheetMode} onModeChange={setSheetMode}>
@@ -267,12 +266,7 @@ export default function HomePage() {
                     <p style={{ margin: '4px 0', color: 'var(--muted)', fontSize: 13 }}>{summarySubtitle}</p>
                   </div>
                   {selectedPlace && (
-                    <a
-                      className="link-button"
-                      href={selectedPlace.map_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
+                    <a className="link-button" href={selectedPlace.map_url} target="_blank" rel="noopener noreferrer">
                       지도 열기
                     </a>
                   )}
@@ -288,17 +282,9 @@ export default function HomePage() {
                     </span>
                   </div>
                 )}
+                {selectedPlace && <div className="state-box">도보 경로/시간은 네이버 Directions API 연동 후 표시됩니다.</div>}
                 {selectedPlace && (
-                  <div className="state-box">
-                    도보 경로/시간은 네이버 Directions API 연동 후 표시됩니다.
-                  </div>
-                )}
-                {selectedPlace && (
-                  <CommentSection
-                    placeId={selectedPlace.place_id}
-                    adminMode={adminMode}
-                    adminPassword={adminPassword}
-                  />
+                  <CommentSection placeId={selectedPlace.place_id} adminMode={adminMode} adminPassword={adminPassword} />
                 )}
               </div>
             )}
@@ -323,7 +309,11 @@ export default function HomePage() {
                             }}
                           />
                           {place.category}
-                          {isNew(place.updated_at) && <span className="new-badge" style={{ marginLeft: 6 }}>NEW</span>}
+                          {isNew(place.updated_at) && (
+                            <span className="new-badge" style={{ marginLeft: 6 }}>
+                              NEW
+                            </span>
+                          )}
                         </span>
                       </div>
                       <a
@@ -398,7 +388,11 @@ export default function HomePage() {
           <div className="settings-panel">
             <div className="toggle-row">
               <span>다크 모드</span>
-              <button type="button" className="link-button" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
+              <button
+                type="button"
+                className="link-button"
+                onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+              >
                 {theme === 'dark' ? '라이트' : '다크'}
               </button>
             </div>
@@ -406,12 +400,7 @@ export default function HomePage() {
               <strong>활동 범위</strong>
               <div className="segmented" style={{ marginTop: 12 }}>
                 {RADIUS_OPTIONS.map((option) => (
-                  <button
-                    key={option}
-                    type="button"
-                    className={option === radius ? 'active' : ''}
-                    onClick={() => setRadius(option)}
-                  >
+                  <button key={option} type="button" className={option === radius ? 'active' : ''} onClick={() => setRadius(option)}>
                     {option}m
                   </button>
                 ))}
@@ -434,21 +423,14 @@ export default function HomePage() {
                 관리자 모드에서 댓글 삭제 버튼이 표시됩니다.
               </p>
             </div>
-            <div className="state-box">
-              지도 스타일/도보 경로는 네이버 지도 SDK + Directions API 키를 연결하면 활성화됩니다.
-            </div>
+            <div className="state-box">지도 스타일/도보 경로는 네이버 지도 SDK + Directions API 키를 연결하면 활성화됩니다.</div>
           </div>
         </main>
       )}
 
       <nav className="bottom-nav">
         {TABS.map((item) => (
-          <button
-            key={item.key}
-            type="button"
-            className={tab === item.key ? 'active' : ''}
-            onClick={() => setTab(item.key)}
-          >
+          <button key={item.key} type="button" className={tab === item.key ? 'active' : ''} onClick={() => setTab(item.key)}>
             {item.label}
           </button>
         ))}
