@@ -8,13 +8,10 @@ declare global {
   }
 }
 
-/** ✅ 등록된 장소(마커) 데이터 타입
- *  lat/lng는 숫자 or 문자열 둘 다 허용 (DB/JSON에서 문자열로 오는 경우 대응)
- */
 export type Place = {
   id: string;
   name: string;
-  category: string; // "한식" "일식" ...
+  category: string;
   lat: number | string;
   lng: number | string;
 };
@@ -23,14 +20,9 @@ type MapViewProps = {
   title: string;
   subtitle: string;
   selectedName?: string;
-
-  /** 기존 UI 표시용(있으면 쓰고 없으면 그냥 0으로) */
   markerCount: number;
 
-  /** ✅ 추가 기능(옵션): 등록된 장소들 */
   places?: Place[];
-
-  /** ✅ 추가 기능(옵션): 선택된 카테고리들 */
   selectedCategories?: string[];
 };
 
@@ -53,6 +45,12 @@ export default function MapView({
   const companyLat = Number(process.env.NEXT_PUBLIC_COMPANY_LAT ?? '37.507520');
   const companyLng = Number(process.env.NEXT_PUBLIC_COMPANY_LNG ?? '127.055055');
 
+  // ✅ 디버그 로그 ON/OFF
+  const DEBUG = true;
+  const dlog = (...args: any[]) => {
+    if (DEBUG) console.log('[MapView]', ...args);
+  };
+
   /** ✅ 카테고리별 색상표 */
   const CATEGORY_COLOR: Record<string, string> = useMemo(
     () => ({
@@ -71,7 +69,7 @@ export default function MapView({
     []
   );
 
-  /** ✅ 작은 회사(빌딩) 아이콘 SVG (기존 유지) */
+  /** ✅ 회사(빌딩) 아이콘 */
   const companyIconUrl = useMemo(() => {
     const svg = `
       <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 28 28">
@@ -99,7 +97,7 @@ export default function MapView({
     return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
   }, []);
 
-  /** ✅ 카테고리 색 핀 SVG 만들기 (파일 없음) */
+  /** ✅ 카테고리 핀 SVG (색만 바꿈) */
   const makePinSvgDataUrl = (color: string) => {
     const svg = `
       <svg xmlns="http://www.w3.org/2000/svg" width="32" height="40" viewBox="0 0 32 40">
@@ -108,27 +106,38 @@ export default function MapView({
         <circle cx="16" cy="12" r="5" fill="white" fill-opacity="0.95"/>
       </svg>
     `.trim();
-
     return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
   };
 
-  /** ✅ 카테고리 -> 아이콘 URL (색상별 캐시) */
+  const normalizeCategory = (v: string) => (v ?? '').trim(); // ✅ 공백 때문에 필터 안 맞는 문제 방지
+
   const getIconUrlByCategory = (category: string) => {
-    const color = CATEGORY_COLOR[category] ?? '#666666';
+    const cat = normalizeCategory(category);
+    const color = CATEGORY_COLOR[cat] ?? '#666666';
     if (!iconCacheRef.current[color]) {
       iconCacheRef.current[color] = makePinSvgDataUrl(color);
     }
     return iconCacheRef.current[color];
   };
 
-  /** ✅ 필터 적용: 선택 없으면 전체 표시 */
   const isVisibleByFilter = (category: string) => {
-    if (!selectedCategories || selectedCategories.length === 0) return true;
-    return selectedCategories.includes(category);
+    const cat = normalizeCategory(category);
+    const selected = (selectedCategories ?? []).map(normalizeCategory).filter(Boolean);
+    if (selected.length === 0) return true;
+    return selected.includes(cat);
   };
 
   useEffect(() => {
-    if (!ncpKeyId) return;
+    // ✅ 가장 먼저: props가 들어오는지부터 로그로 확인
+    dlog('places length:', places?.length, 'sample:', places?.[0]);
+    dlog('selectedCategories:', selectedCategories);
+  }, [places, selectedCategories]);
+
+  useEffect(() => {
+    if (!ncpKeyId) {
+      console.error('[MapView] NEXT_PUBLIC_NAVER_MAP_CLIENT_ID is missing');
+      return;
+    }
 
     const ensureScript = () =>
       new Promise<void>((resolve, reject) => {
@@ -145,7 +154,6 @@ export default function MapView({
         script.setAttribute('data-naver-maps', 'true');
         script.async = true;
         script.defer = true;
-
         script.src = `https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=${encodeURIComponent(ncpKeyId)}`;
 
         script.onload = () => resolve();
@@ -171,6 +179,7 @@ export default function MapView({
             zoomControl: true,
             zoomControlOptions: { position: naver.maps.Position.TOP_RIGHT },
           });
+          dlog('map created');
         } else {
           mapInstanceRef.current.setCenter(center);
         }
@@ -190,20 +199,29 @@ export default function MapView({
             },
             clickable: true,
           });
+          dlog('company marker created');
         } else {
           companyMarkerRef.current.setPosition(center);
           companyMarkerRef.current.setMap(map);
         }
 
-        // ✅ 장소 마커 생성/갱신 (핵심: lat/lng를 Number로 변환)
-        for (const p of places) {
-          if (!p?.id) continue;
+        // ✅ places 마커 생성/갱신
+        let created = 0;
+        let skipped = 0;
 
+        for (const p of places) {
+          if (!p?.id) {
+            skipped++;
+            continue;
+          }
+
+          // ✅ 문자열/숫자 모두 숫자로 변환
           const lat = Number(p.lat);
           const lng = Number(p.lng);
 
           if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-            console.warn('좌표 이상(스킵):', p);
+            skipped++;
+            console.warn('[MapView] invalid lat/lng -> skipped:', p);
             continue;
           }
 
@@ -226,24 +244,42 @@ export default function MapView({
               },
               clickable: true,
             });
+            created++;
           }
         }
 
-        // ✅ 필터 반영(show/hide)
+        // ✅ 필터 show/hide
+        let shown = 0;
+        let hidden = 0;
+
         for (const p of places) {
           const marker = placeMarkersRef.current[p.id];
           if (!marker) continue;
-          marker.setMap(isVisibleByFilter(p.category) ? map : null);
+          const visible = isVisibleByFilter(p.category);
+          marker.setMap(visible ? map : null);
+          if (visible) shown++;
+          else hidden++;
         }
 
-        // ✅ places에서 제거된 항목은 마커도 제거(동기화)
+        // ✅ places에서 사라진 마커 제거(동기화)
         const keep = new Set(places.map((p) => p.id));
+        let removed = 0;
         for (const [id, marker] of Object.entries(placeMarkersRef.current)) {
           if (!keep.has(id)) {
             marker.setMap(null);
             delete placeMarkersRef.current[id];
+            removed++;
           }
         }
+
+        dlog('markers summary:', {
+          placesLen: places.length,
+          created,
+          skipped,
+          shown,
+          hidden,
+          removed,
+        });
       } catch (e) {
         console.error(e);
       }
