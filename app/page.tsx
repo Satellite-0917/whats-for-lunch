@@ -128,9 +128,7 @@ export default function HomePage() {
   const categories = useMemo(() => {
     const set = new Set<string>();
     places.forEach((place) => {
-      if (place.category) {
-        set.add(place.category);
-      }
+      if (place.category) set.add(place.category);
     });
     return Array.from(set).sort();
   }, [places]);
@@ -147,6 +145,7 @@ export default function HomePage() {
   const filteredPlaces = useMemo(() => {
     const keyword = searchTerm.trim().toLowerCase();
     const categoryFilterActive = selectedCategories.size > 0;
+
     return placesWithDistance
       .filter((place) => place.distance <= radius)
       .filter((place) => {
@@ -176,11 +175,8 @@ export default function HomePage() {
   const handleToggleCategory = (category: string) => {
     setSelectedCategories((prev) => {
       const next = new Set(prev);
-      if (next.has(category)) {
-        next.delete(category);
-      } else {
-        next.add(category);
-      }
+      if (next.has(category)) next.delete(category);
+      else next.add(category);
       return next;
     });
   };
@@ -208,6 +204,19 @@ export default function HomePage() {
 
   const mapSubtitle = `회사 기준 반경 ${radius}m · ${filteredPlaces.length}곳`;
 
+  // ✅🔥 핵심: MapView가 요구하는 형태(id, lat/lng...)로 변환
+  const mapPlaces = useMemo(
+    () =>
+      filteredPlaces.map((p) => ({
+        id: p.place_id, // ✅ place_id -> id
+        name: p.name,
+        category: p.category,
+        lat: p.lat,
+        lng: p.lng,
+      })),
+    [filteredPlaces]
+  );
+
   return (
     <div className="app-shell">
       {tab !== 'settings' && (
@@ -219,6 +228,7 @@ export default function HomePage() {
               placeholder="가게 이름을 검색하세요"
             />
           </div>
+
           <div className="chip-row">
             {categories.map((category) => {
               const isSelected = selectedCategories.has(category);
@@ -241,14 +251,13 @@ export default function HomePage() {
 
       {tab === 'map' && (
         <>
-          {/* ✅ 여기만 핵심 수정: MapView에 places + selectedCategories 넘기기 */}
           <MapView
             title="오늘 뭐 먹지?"
             subtitle={mapSubtitle}
             selectedName={selectedPlace?.name}
             markerCount={filteredPlaces.length}
-            places={filteredPlaces} // ✅ 마커로 찍을 데이터
-            selectedCategories={Array.from(selectedCategories)} // ✅ Set -> Array로 변환
+            places={mapPlaces} // ✅ 변환된 데이터 넘김
+            selectedCategories={Array.from(selectedCategories)} // ✅ Set -> Array
           />
 
           <BottomSheet mode={sheetMode} onModeChange={setSheetMode}>
@@ -271,6 +280,7 @@ export default function HomePage() {
                     </a>
                   )}
                 </div>
+
                 {selectedPlace && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <span className="badge" style={{ background: getCategoryColor(selectedPlace.category) }}>
@@ -282,7 +292,9 @@ export default function HomePage() {
                     </span>
                   </div>
                 )}
+
                 {selectedPlace && <div className="state-box">도보 경로/시간은 네이버 Directions API 연동 후 표시됩니다.</div>}
+
                 {selectedPlace && (
                   <CommentSection placeId={selectedPlace.place_id} adminMode={adminMode} adminPassword={adminPassword} />
                 )}
@@ -316,6 +328,7 @@ export default function HomePage() {
                           )}
                         </span>
                       </div>
+
                       <a
                         className="link-button"
                         href={place.map_url}
@@ -388,11 +401,7 @@ export default function HomePage() {
           <div className="settings-panel">
             <div className="toggle-row">
               <span>다크 모드</span>
-              <button
-                type="button"
-                className="link-button"
-                onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-              >
+              <button type="button" className="link-button" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
                 {theme === 'dark' ? '라이트' : '다크'}
               </button>
             </div>
@@ -419,9 +428,7 @@ export default function HomePage() {
                   {adminMode ? '관리자 끄기' : '관리자 켜기'}
                 </button>
               </div>
-              <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>
-                관리자 모드에서 댓글 삭제 버튼이 표시됩니다.
-              </p>
+              <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>관리자 모드에서 댓글 삭제 버튼이 표시됩니다.</p>
             </div>
             <div className="state-box">지도 스타일/도보 경로는 네이버 지도 SDK + Directions API 키를 연결하면 활성화됩니다.</div>
           </div>
