@@ -19,34 +19,37 @@ export default function MapView({
 
   useEffect(() => {
     if (!mapRef.current) return;
-    if (!window.naver) return;
+
+    // ✅ TypeScript 빌드 에러 방지: window.naver를 any로 안전하게 사용
+    const naver = (window as any).naver;
+    if (!naver || !naver.maps) return;
 
     const companyLat = Number(process.env.NEXT_PUBLIC_COMPANY_LAT);
     const companyLng = Number(process.env.NEXT_PUBLIC_COMPANY_LNG);
 
-    // 지도 생성
-    const map = new window.naver.maps.Map(mapRef.current, {
-      center: new window.naver.maps.LatLng(companyLat, companyLng),
+    if (!Number.isFinite(companyLat) || !Number.isFinite(companyLng)) return;
+
+    const map = new naver.maps.Map(mapRef.current, {
+      center: new naver.maps.LatLng(companyLat, companyLng),
       zoom: 15,
     });
 
     // 🏢 회사(시작점) 마커
-    new window.naver.maps.Marker({
-      position: new window.naver.maps.LatLng(companyLat, companyLng),
+    new naver.maps.Marker({
+      position: new naver.maps.LatLng(companyLat, companyLng),
       map,
+      title: '회사 (시작점)',
       icon: {
         content: `
           <div style="
             font-size: 28px;
             line-height: 1;
             transform: translate(-50%, -100%);
-          ">
-            🏢
-          </div>
+            user-select: none;
+          ">🏢</div>
         `,
-        anchor: new window.naver.maps.Point(0, 0),
+        anchor: new naver.maps.Point(0, 0),
       },
-      title: '회사 (시작점)',
     });
   }, []);
 
@@ -61,7 +64,6 @@ export default function MapView({
         )}
       </div>
 
-      {/* 지도 영역 */}
       <div
         ref={mapRef}
         style={{
