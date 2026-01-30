@@ -2,7 +2,6 @@
 
 import { useEffect, useRef } from 'react';
 
-// ✅ TypeScript가 window.naver를 모른다고 해서 빌드가 깨지는 걸 방지
 declare global {
   interface Window {
     naver?: any;
@@ -58,13 +57,11 @@ export default function MapView({
       });
     };
 
-    // 이미 로드됐으면 바로 초기화
     if (window.naver && window.naver.maps) {
       initMap();
       return;
     }
 
-    // 스크립트 중복 로드 방지
     const existing = document.querySelector(
       'script[data-naver-maps="true"]'
     ) as HTMLScriptElement | null;
@@ -76,7 +73,10 @@ export default function MapView({
 
     const script = document.createElement('script');
     script.dataset.naverMaps = 'true';
-    script.src = `https://oapi.map.naver.com/openapi/v3/maps.js?ncpClientId=${NAVER_MAP_CLIENT_ID}`;
+
+    // ✅ 여기만 바뀜: ncpClientId -> ncpKeyId
+    script.src = `https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=${NAVER_MAP_CLIENT_ID}`;
+
     script.async = true;
     script.onload = initMap;
     document.head.appendChild(script);
