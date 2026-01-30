@@ -24,8 +24,12 @@ type DataResponse = {
   categoryColors: Record<string, string>;
 };
 
-const COMPANY_LAT = 37.5665;
-const COMPANY_LNG = 126.978;
+/**
+ * ✅ 회사 좌표는 MapView랑 반드시 동일하게(env) 사용
+ * - Vercel env가 없을 때를 대비해 기존 MapView 기본값과 동일하게 둠
+ */
+const COMPANY_LAT = Number(process.env.NEXT_PUBLIC_COMPANY_LAT ?? '37.507520');
+const COMPANY_LNG = Number(process.env.NEXT_PUBLIC_COMPANY_LNG ?? '127.055055');
 
 const RADIUS_OPTIONS = [200, 400, 600, 800, 1000];
 const DEFAULT_RADIUS = 600;
@@ -69,6 +73,13 @@ function isNew(updatedAt: string | null) {
 
 function formatWalkMinutes(distanceMeters: number) {
   return Math.max(1, Math.round(distanceMeters / WALK_SPEED_M_PER_MIN));
+}
+
+/** ✅ status가 시트에서 조금씩 다르게 올 수 있어서 유연하게 처리 */
+function isActiveStatus(status: string) {
+  const s = (status ?? '').trim();
+  if (!s) return true; // 빈 값이면 일단 포함
+  return s === '제휴중' || s === '제휴 중' || s === '활성' || s === 'active';
 }
 
 export default function HomePage() {
@@ -135,10 +146,10 @@ export default function HomePage() {
 
   const placesWithDistance = useMemo(() => {
     return places
-      .filter((place) => place.status === '제휴중')
+      .filter((place) => isActiveStatus(place.status)) // ✅ status 유연 처리
       .map((place) => ({
         ...place,
-        distance: haversineMeters(COMPANY_LAT, COMPANY_LNG, place.lat, place.lng),
+        distance: haversineMeters(COMPANY_LAT, COMPANY_LNG, place.lat, place.lng), // ✅ 회사 좌표 env
       }));
   }, [places]);
 
@@ -204,11 +215,11 @@ export default function HomePage() {
 
   const mapSubtitle = `회사 기준 반경 ${radius}m · ${filteredPlaces.length}곳`;
 
-  // ✅🔥 핵심: MapView가 요구하는 형태(id, lat/lng...)로 변환
+  // ✅ MapView용 데이터로 변환 (id 필드 필수)
   const mapPlaces = useMemo(
     () =>
       filteredPlaces.map((p) => ({
-        id: p.place_id, // ✅ place_id -> id
+        id: p.place_id,
         name: p.name,
         category: p.category,
         lat: p.lat,
@@ -256,8 +267,8 @@ export default function HomePage() {
             subtitle={mapSubtitle}
             selectedName={selectedPlace?.name}
             markerCount={filteredPlaces.length}
-            places={mapPlaces} // ✅ 변환된 데이터 넘김
-            selectedCategories={Array.from(selectedCategories)} // ✅ Set -> Array
+            places={mapPlaces}
+            selectedCategories={Array.from(selectedCategories)}
           />
 
           <BottomSheet mode={sheetMode} onModeChange={setSheetMode}>
