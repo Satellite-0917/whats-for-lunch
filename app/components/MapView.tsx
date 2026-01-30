@@ -30,11 +30,11 @@ export default function MapView({
   useEffect(() => {
     if (!mapRef.current) return;
 
+    // ✅ 필수 환경변수 체크
     if (!NAVER_MAP_CLIENT_ID) {
       console.error('NEXT_PUBLIC_NAVER_MAP_CLIENT_ID가 없습니다.');
       return;
     }
-
     if (!Number.isFinite(COMPANY_LAT) || !Number.isFinite(COMPANY_LNG)) {
       console.error('회사 좌표 환경변수(NEXT_PUBLIC_COMPANY_LAT/LNG)가 없습니다.');
       return;
@@ -51,17 +51,20 @@ export default function MapView({
         zoom: 16,
       });
 
+      // 회사 위치 마커 1개
       new window.naver.maps.Marker({
         position: center,
         map,
       });
     };
 
+    // 이미 로드되어 있으면 바로 초기화
     if (window.naver && window.naver.maps) {
       initMap();
       return;
     }
 
+    // 같은 스크립트가 이미 있으면 onload만 붙임
     const existing = document.querySelector(
       'script[data-naver-maps="true"]'
     ) as HTMLScriptElement | null;
@@ -71,14 +74,13 @@ export default function MapView({
       return;
     }
 
+    // ✅ 핵심: Web JS SDK는 ncpClientId 사용
     const script = document.createElement('script');
     script.dataset.naverMaps = 'true';
-
-    // ✅ 여기만 바뀜: ncpClientId -> ncpKeyId
-    script.src = `https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=${NAVER_MAP_CLIENT_ID}`;
-
+    script.src = `https://oapi.map.naver.com/openapi/v3/maps.js?ncpClientId=${NAVER_MAP_CLIENT_ID}`;
     script.async = true;
     script.onload = initMap;
+
     document.head.appendChild(script);
   }, []);
 
@@ -93,6 +95,7 @@ export default function MapView({
         )}
       </div>
 
+      {/* ✅ 실제 지도 렌더링 영역 */}
       <div
         ref={mapRef}
         className="map-view__map"
