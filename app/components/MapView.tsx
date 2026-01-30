@@ -2,6 +2,13 @@
 
 import { useEffect, useRef } from 'react';
 
+// ✅ TypeScript가 window.naver를 모른다고 해서 빌드가 깨지는 걸 방지
+declare global {
+  interface Window {
+    naver?: any;
+  }
+}
+
 type MapViewProps = {
   title: string;
   subtitle: string;
@@ -23,25 +30,20 @@ export default function MapView({
 
   useEffect(() => {
     if (!mapRef.current) return;
+
     if (!NAVER_MAP_CLIENT_ID) {
-      console.error('네이버 지도 Client ID가 없습니다.');
+      console.error('NEXT_PUBLIC_NAVER_MAP_CLIENT_ID가 없습니다.');
       return;
     }
 
-    // 이미 스크립트가 로드되어 있으면 다시 로드하지 않음
-    if (window.naver && window.naver.maps) {
-      initMap();
+    if (!Number.isFinite(COMPANY_LAT) || !Number.isFinite(COMPANY_LNG)) {
+      console.error('회사 좌표 환경변수(NEXT_PUBLIC_COMPANY_LAT/LNG)가 없습니다.');
       return;
     }
 
-    const script = document.createElement('script');
-    script.src = `https://oapi.map.naver.com/openapi/v3/maps.js?ncpClientId=${NAVER_MAP_CLIENT_ID}`;
-    script.async = true;
-    script.onload = initMap;
-    document.head.appendChild(script);
-
-    function initMap() {
-      if (!mapRef.current || !window.naver) return;
+    const initMap = () => {
+      if (!mapRef.current) return;
+      if (!window.naver || !window.naver.maps) return;
 
       const center = new window.naver.maps.LatLng(COMPANY_LAT, COMPANY_LNG);
 
@@ -54,7 +56,30 @@ export default function MapView({
         position: center,
         map,
       });
+    };
+
+    // 이미 로드됐으면 바로 초기화
+    if (window.naver && window.naver.maps) {
+      initMap();
+      return;
     }
+
+    // 스크립트 중복 로드 방지
+    const existing = document.querySelector(
+      'script[data-naver-maps="true"]'
+    ) as HTMLScriptElement | null;
+
+    if (existing) {
+      existing.addEventListener('load', initMap);
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.dataset.naverMaps = 'true';
+    script.src = `https://oapi.map.naver.com/openapi/v3/maps.js?ncpClientId=${NAVER_MAP_CLIENT_ID}`;
+    script.async = true;
+    script.onload = initMap;
+    document.head.appendChild(script);
   }, []);
 
   return (
@@ -68,7 +93,6 @@ export default function MapView({
         )}
       </div>
 
-      {/* 👇 여기가 진짜 지도 */}
       <div
         ref={mapRef}
         className="map-view__map"
