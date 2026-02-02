@@ -9,9 +9,9 @@ type BottomSheetProps = {
 };
 
 const SNAP_POINTS = {
-  collapsed: 160,
-  expanded: 520,
-  detail: 320,
+  collapsed: 180,
+  expanded: 720,
+  detail: 520,
 };
 
 export default function BottomSheet({ mode, onModeChange, children }: BottomSheetProps) {
