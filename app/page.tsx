@@ -91,7 +91,12 @@ export default function HomePage() {
   const [errorMessage, setErrorMessage] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedPlace, setSelectedPlace] = useState<PlaceWithDistance | null>(null);
+
+  // ✅ 기본값을 collapsed로 둬도 되지만,
+  //    "목록을 볼 수 없어서 진행이 안됨" 상태를 막기 위해
+  //    collapsed 상태에서도 TOP3 목록을 보여주도록 아래에서 UI를 추가함.
   const [sheetMode, setSheetMode] = useState<SheetMode>('collapsed');
+
   const [tab, setTab] = useState<TabKey>('map');
   const [randomPick, setRandomPick] = useState<PlaceWithDistance | null>(null);
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
@@ -171,6 +176,7 @@ export default function HomePage() {
   }, [placesWithDistance, radius, searchTerm, selectedCategories]);
 
   const topPlaces = filteredPlaces.slice(0, 20);
+  const miniPlaces = filteredPlaces.slice(0, 3); // ✅ collapsed에서도 최소 3개 보여주기용
 
   useEffect(() => {
     if (selectedPlace && !filteredPlaces.find((place) => place.place_id === selectedPlace.place_id)) {
@@ -197,6 +203,11 @@ export default function HomePage() {
     setSheetMode('detail');
   };
 
+  const handleBackToList = () => {
+    setSelectedPlace(null);
+    setSheetMode('expanded');
+  };
+
   const handleRandomPick = () => {
     if (!filteredPlaces.length) {
       setRandomPick(null);
@@ -208,7 +219,7 @@ export default function HomePage() {
 
   const getCategoryColor = (category: string) => categoryColors[category] ?? DEFAULT_COLOR;
 
-  const summaryTitle = selectedPlace ? selectedPlace.name : '근처 목록 요약';
+  const summaryTitle = selectedPlace ? selectedPlace.name : '근처 목록';
   const summarySubtitle = selectedPlace
     ? `${selectedPlace.category} · 도보 ${formatWalkMinutes(selectedPlace.distance)}분`
     : `${filteredPlaces.length}곳 · 반경 ${radius}m`;
@@ -278,80 +289,155 @@ export default function HomePage() {
               <div className="state-box">조건에 맞는 장소가 없습니다. 반경이나 필터를 조정해 보세요.</div>
             )}
 
+            {/* ✅ 데이터가 있을 때 */}
             {status === 'idle' && filteredPlaces.length > 0 && (
               <div className="summary-card">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div>
+                {/* ✅ 요약/상단 */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+                  <div style={{ flex: 1 }}>
                     <strong>{summaryTitle}</strong>
                     <p style={{ margin: '4px 0', color: 'var(--muted)', fontSize: 13 }}>{summarySubtitle}</p>
                   </div>
-                  {selectedPlace && (
-                    <a className="link-button" href={selectedPlace.map_url} target="_blank" rel="noopener noreferrer">
-                      지도 열기
-                    </a>
-                  )}
+
+                  {/* ✅ 오른쪽 버튼들 */}
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    {!selectedPlace && (
+                      <button
+                        type="button"
+                        className="link-button"
+                        onClick={() => setSheetMode((prev) => (prev === 'expanded' ? 'collapsed' : 'expanded'))}
+                      >
+                        {sheetMode === 'expanded' ? '접기' : '전체보기'}
+                      </button>
+                    )}
+
+                    {selectedPlace && (
+                      <>
+                        <button type="button" className="link-button" onClick={handleBackToList}>
+                          목록
+                        </button>
+                        <a className="link-button" href={selectedPlace.map_url} target="_blank" rel="noopener noreferrer">
+                          지도 열기
+                        </a>
+                      </>
+                    )}
+                  </div>
                 </div>
 
+                {/* ✅ 선택된 가게(상세) */}
                 {selectedPlace && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span className="badge" style={{ background: getCategoryColor(selectedPlace.category) }}>
-                      {selectedPlace.category}
-                    </span>
-                    {isNew(selectedPlace.updated_at) && <span className="new-badge">NEW</span>}
-                    <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-                      도보 약 {formatWalkMinutes(selectedPlace.distance)}분
-                    </span>
+                  <>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10 }}>
+                      <span className="badge" style={{ background: getCategoryColor(selectedPlace.category) }}>
+                        {selectedPlace.category}
+                      </span>
+                      {isNew(selectedPlace.updated_at) && <span className="new-badge">NEW</span>}
+                      <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                        도보 약 {formatWalkMinutes(selectedPlace.distance)}분
+                      </span>
+                    </div>
+
+                    <div className="state-box" style={{ marginTop: 10 }}>
+                      도보 경로/시간은 네이버 Directions API 연동 후 표시됩니다.
+                    </div>
+
+                    <CommentSection placeId={selectedPlace.place_id} adminMode={adminMode} adminPassword={adminPassword} />
+                  </>
+                )}
+
+                {/* ✅ 선택된 가게가 없을 때: "collapsed에서도" 최소한 목록을 보여준다 */}
+                {!selectedPlace && sheetMode === 'collapsed' && (
+                  <div style={{ marginTop: 12 }}>
+                    <h2 style={{ margin: '0 0 10px', fontSize: 14, color: 'var(--muted)' }}>가까운 곳 미리보기</h2>
+                    <div className="list">
+                      {miniPlaces.map((place) => (
+                        <div key={place.place_id} className="list-item" onClick={() => handleSelectPlace(place)}>
+                          <div className="meta">
+                            <strong>{place.name}</strong>
+                            <span>
+                              <span
+                                style={{
+                                  display: 'inline-block',
+                                  width: 8,
+                                  height: 8,
+                                  borderRadius: '50%',
+                                  background: getCategoryColor(place.category),
+                                  marginRight: 6,
+                                }}
+                              />
+                              {place.category}
+                              {isNew(place.updated_at) && (
+                                <span className="new-badge" style={{ marginLeft: 6 }}>
+                                  NEW
+                                </span>
+                              )}
+                              <span style={{ marginLeft: 8, fontSize: 12, color: 'var(--muted)' }}>
+                                {formatWalkMinutes(place.distance)}분
+                              </span>
+                            </span>
+                          </div>
+
+                          <a
+                            className="link-button"
+                            href={place.map_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(event) => event.stopPropagation()}
+                          >
+                            지도
+                          </a>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
 
-                {selectedPlace && <div className="state-box">도보 경로/시간은 네이버 Directions API 연동 후 표시됩니다.</div>}
-
-                {selectedPlace && (
-                  <CommentSection placeId={selectedPlace.place_id} adminMode={adminMode} adminPassword={adminPassword} />
-                )}
-              </div>
-            )}
-
-            {sheetMode === 'expanded' && status === 'idle' && filteredPlaces.length > 0 && (
-              <div style={{ marginTop: 16 }}>
-                <h2 style={{ margin: '0 0 12px', fontSize: 16 }}>가까운 곳 TOP 20</h2>
-                <div className="list">
-                  {topPlaces.map((place) => (
-                    <div key={place.place_id} className="list-item" onClick={() => handleSelectPlace(place)}>
-                      <div className="meta">
-                        <strong>{place.name}</strong>
-                        <span>
-                          <span
-                            style={{
-                              display: 'inline-block',
-                              width: 8,
-                              height: 8,
-                              borderRadius: '50%',
-                              background: getCategoryColor(place.category),
-                              marginRight: 6,
-                            }}
-                          />
-                          {place.category}
-                          {isNew(place.updated_at) && (
-                            <span className="new-badge" style={{ marginLeft: 6 }}>
-                              NEW
+                {/* ✅ expanded일 때: TOP20 전체 목록 */}
+                {!selectedPlace && sheetMode === 'expanded' && (
+                  <div style={{ marginTop: 16 }}>
+                    <h2 style={{ margin: '0 0 12px', fontSize: 16 }}>가까운 곳 TOP 20</h2>
+                    <div className="list">
+                      {topPlaces.map((place) => (
+                        <div key={place.place_id} className="list-item" onClick={() => handleSelectPlace(place)}>
+                          <div className="meta">
+                            <strong>{place.name}</strong>
+                            <span>
+                              <span
+                                style={{
+                                  display: 'inline-block',
+                                  width: 8,
+                                  height: 8,
+                                  borderRadius: '50%',
+                                  background: getCategoryColor(place.category),
+                                  marginRight: 6,
+                                }}
+                              />
+                              {place.category}
+                              {isNew(place.updated_at) && (
+                                <span className="new-badge" style={{ marginLeft: 6 }}>
+                                  NEW
+                                </span>
+                              )}
+                              <span style={{ marginLeft: 8, fontSize: 12, color: 'var(--muted)' }}>
+                                {formatWalkMinutes(place.distance)}분
+                              </span>
                             </span>
-                          )}
-                        </span>
-                      </div>
+                          </div>
 
-                      <a
-                        className="link-button"
-                        href={place.map_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(event) => event.stopPropagation()}
-                      >
-                        지도
-                      </a>
+                          <a
+                            className="link-button"
+                            href={place.map_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(event) => event.stopPropagation()}
+                          >
+                            지도
+                          </a>
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
+                  </div>
+                )}
               </div>
             )}
           </BottomSheet>
