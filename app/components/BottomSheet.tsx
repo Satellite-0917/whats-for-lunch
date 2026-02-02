@@ -10,10 +10,10 @@ type BottomSheetProps = {
 
 export default function BottomSheet({ mode, onModeChange, children }: BottomSheetProps) {
   const [dragOffset, setDragOffset] = useState(0);
-  const [vh, setVh] = useState<number>(800); // 초기값 아무거나
+  const [vh, setVh] = useState(800);
   const startY = useRef<number | null>(null);
 
-  // ✅ 화면 높이(뷰포트) 가져오기
+  // 화면 높이 추적 (기기/브라우저마다 다르게 보이는 문제 방지)
   useEffect(() => {
     const update = () => setVh(window.innerHeight);
     update();
@@ -25,12 +25,12 @@ export default function BottomSheet({ mode, onModeChange, children }: BottomShee
     setDragOffset(0);
   }, [mode]);
 
-  // ✅ 스냅 높이를 "화면 비율"로 계산
+  // ✅ 화면 비율 기반 스냅 포인트
   const SNAP_POINTS = useMemo(() => {
     return {
-      collapsed: 180, // 요약/미리보기
-      detail: Math.round(vh * 0.62), // 댓글 달기 충분
-      expanded: Math.round(vh * 0.85), // 목록 보기용(최대)
+      collapsed: 180,
+      detail: Math.round(vh * 0.62),
+      expanded: Math.round(vh * 0.85),
     } as const;
   }, [vh]);
 
@@ -50,12 +50,16 @@ export default function BottomSheet({ mode, onModeChange, children }: BottomShee
     startY.current = null;
     setDragOffset(0);
 
-    if (delta < -60) onModeChange('expanded');
-    else if (delta > 60) onModeChange('collapsed');
+    if (delta < -60) {
+      onModeChange('expanded');
+    } else if (delta > 60) {
+      onModeChange('collapsed');
+    }
   };
 
   const handleToggle = () => {
-    onModeChange(mode === 'expanded' ? 'collapsed' : 'expanded');
+    if (mode === 'expanded') onModeChange('collapsed');
+    else onModeChange('expanded');
   };
 
   const height = SNAP_POINTS[mode];
@@ -65,7 +69,7 @@ export default function BottomSheet({ mode, onModeChange, children }: BottomShee
       className="bottom-sheet"
       style={{
         height,
-        maxHeight: Math.round(vh * 0.9), // ✅ 혹시 모를 제한 방지
+        maxHeight: Math.round(vh * 0.9),
         transform: `translateY(${dragOffset}px)`,
       }}
     >
