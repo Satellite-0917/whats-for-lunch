@@ -151,13 +151,13 @@ textarea {
   font-size: 12px;
 }
 
-/* ✅ 핵심 수정: bottom을 0으로 + max-height 추가 */
+/* ✅ 핵심: 시트가 바닥까지 붙고(0), 충분히 위로 올라오게(90vh) */
 .bottom-sheet {
   position: fixed;
   left: 0;
   right: 0;
-  bottom: 0;                 /* ✅ 64px → 0 */
-  max-height: 90vh;          /* ✅ 위로 더 올라갈 수 있게 */
+  bottom: 0;
+  max-height: 90vh;
   max-width: 520px;
   margin: 0 auto;
   border-radius: 24px 24px 0 0;
@@ -340,6 +340,8 @@ textarea {
   color: var(--bg);
 }
 
+/* ====== 댓글 영역 ====== */
+
 .comment-section {
   display: flex;
   flex-direction: column;
@@ -416,4 +418,14 @@ textarea {
   font-size: 11px;
 }
 
-.comment-section__er
+.comment-section__error {
+  color: #ef4444;
+  font-size: 12px;
+}
+
+.comment-section__cooldown,
+.comment-section__loading,
+.comment-section__empty {
+  font-size: 12px;
+  color: var(--muted);
+}
