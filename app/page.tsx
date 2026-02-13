@@ -77,18 +77,21 @@ function isActiveStatus(status: string) {
 }
 
 /**
- * ✅ 네이버 지도 웹 길찾기(도보) 링크 만들기
- * - 핵심: "출발 덩어리 / 도착 덩어리 / walk" 형태여야 목적지가 정상 입력됨
- * - 좌표 순서: lng,lat (x,y)
+ * ✅ 회사 -> 가게 “도보 길찾기” URL 생성
+ * - 도착지가 비는 문제 방지: 이름/좌표를 확실히 넣고 encodeURIComponent 처리
+ * - (네이버가 내부적으로 포맷을 바꿀 수는 있지만) 현재 웹에서 가장 흔히 쓰는 p/directions 포맷
  */
-function buildWalkDirectionsUrl(destLat: number, destLng: number, destName: string) {
-  const startName = encodeURIComponent('회사');
-  const endName = encodeURIComponent(destName);
+function makeWalkDirectionsUrl(place: { name: string; lat: number; lng: number }) {
+  const sName = encodeURIComponent('회사');
+  const eName = encodeURIComponent(place.name);
 
-  const start = `${COMPANY_LNG},${COMPANY_LAT},${startName}`;
-  const end = `${destLng},${destLat},${endName}`;
+  const slng = COMPANY_LNG;
+  const slat = COMPANY_LAT;
+  const elng = place.lng;
+  const elat = place.lat;
 
-  return `https://map.naver.com/p/directions/${start}/${end}/walk`;
+  // ✅ 핵심: lng,lat 순서
+  return `https://map.naver.com/p/directions/${slng},${slat},${sName},place/${elng},${elat},${eName},place/-/walk`;
 }
 
 export default function HomePage() {
@@ -108,7 +111,6 @@ export default function HomePage() {
   const [adminMode, setAdminMode] = useState(false);
   const [adminPassword, setAdminPassword] = useState('');
 
-  // ✅ 선택 해제 + 시트 접기
   const clearSelection = () => {
     setSelectedPlace(null);
     setSheetMode('collapsed');
@@ -116,9 +118,7 @@ export default function HomePage() {
 
   useEffect(() => {
     const storedTheme = localStorage.getItem('theme');
-    if (storedTheme === 'dark' || storedTheme === 'light') {
-      setTheme(storedTheme);
-    }
+    if (storedTheme === 'dark' || storedTheme === 'light') setTheme(storedTheme);
   }, []);
 
   useEffect(() => {
@@ -187,7 +187,6 @@ export default function HomePage() {
   const topPlaces = filteredPlaces.slice(0, 20);
   const miniPlaces = filteredPlaces.slice(0, 3);
 
-  // ✅ 검색/필터로 selectedPlace가 목록에서 사라지면: 선택 해제 + 시트 접기
   useEffect(() => {
     if (selectedPlace && !filteredPlaces.find((p) => p.place_id === selectedPlace.place_id)) {
       clearSelection();
@@ -213,7 +212,6 @@ export default function HomePage() {
     setSheetMode('detail');
   };
 
-  // ✅ 상세에서 “목록” 버튼: 선택 해제하되 목록은 보여주기(expanded)
   const handleBackToList = () => {
     setSelectedPlace(null);
     setSheetMode('expanded');
@@ -255,15 +253,16 @@ export default function HomePage() {
     handleSelectPlace(found);
   };
 
-  // ✅ 상세용 길찾기 링크(도보)
-  const selectedWalkUrl = selectedPlace ? buildWalkDirectionsUrl(selectedPlace.lat, selectedPlace.lng, selectedPlace.name) : null;
-
   return (
     <div className="app-shell">
       {tab !== 'settings' && (
         <div className="top-bar">
           <div className="search-row">
-            <input value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="가게 이름을 검색하세요" />
+            <input
+              value={searchTerm}
+              onChange={(event) => setSearchTerm(event.target.value)}
+              placeholder="가게 이름을 검색하세요"
+            />
           </div>
 
           <div className="chip-row">
@@ -332,12 +331,15 @@ export default function HomePage() {
                           목록
                         </button>
 
-                        {/* ✅ 도보 길찾기(회사 -> 식당) */}
-                        {selectedWalkUrl && (
-                          <a className="link-button" href={selectedWalkUrl} target="_blank" rel="noopener noreferrer">
-                            길찾기
-                          </a>
-                        )}
+                        {/* ✅ 도보 길찾기 복구 */}
+                        <a
+                          className="link-button"
+                          href={makeWalkDirectionsUrl(selectedPlace)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          도보 길찾기
+                        </a>
 
                         <a className="link-button" href={selectedPlace.map_url} target="_blank" rel="noopener noreferrer">
                           지도 열기
@@ -354,7 +356,9 @@ export default function HomePage() {
                         {selectedPlace.category}
                       </span>
                       {isNew(selectedPlace.updated_at) && <span className="new-badge">NEW</span>}
-                      <span style={{ fontSize: 12, color: 'var(--muted)' }}>도보 약 {formatWalkMinutes(selectedPlace.distance)}분</span>
+                      <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                        도보 약 {formatWalkMinutes(selectedPlace.distance)}분
+                      </span>
                     </div>
 
                     <CommentSection placeId={selectedPlace.place_id} adminMode={adminMode} adminPassword={adminPassword} />
@@ -466,9 +470,12 @@ export default function HomePage() {
               랜덤 추천 받기
             </button>
           </section>
+
           {status === 'loading' && <div className="state-box">데이터를 불러오는 중입니다...</div>}
           {status === 'error' && <div className="state-box">{errorMessage}</div>}
-          {status === 'idle' && filteredPlaces.length === 0 && <div className="state-box">조건에 맞는 장소가 없습니다. 필터를 조정해 보세요.</div>}
+          {status === 'idle' && filteredPlaces.length === 0 && (
+            <div className="state-box">조건에 맞는 장소가 없습니다. 필터를 조정해 보세요.</div>
+          )}
 
           {randomPick && (
             <section>
@@ -479,24 +486,14 @@ export default function HomePage() {
                     {randomPick.category}
                   </span>
                   {isNew(randomPick.updated_at) && <span className="new-badge">NEW</span>}
-                  <span style={{ fontSize: 12, color: 'var(--muted)' }}>도보 약 {formatWalkMinutes(randomPick.distance)}분</span>
+                  <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                    도보 약 {formatWalkMinutes(randomPick.distance)}분
+                  </span>
                 </div>
-
-                <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
-                  {/* ✅ 랜덤에서도 도보 길찾기 */}
-                  <a
-                    className="link-button"
-                    href={buildWalkDirectionsUrl(randomPick.lat, randomPick.lng, randomPick.name)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    길찾기
-                  </a>
-
+                <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                   <a className="link-button" href={randomPick.map_url} target="_blank" rel="noopener noreferrer">
                     지도 열기
                   </a>
-
                   <button
                     className="link-button"
                     type="button"
@@ -525,6 +522,7 @@ export default function HomePage() {
                 {theme === 'dark' ? '라이트' : '다크'}
               </button>
             </div>
+
             <div>
               <strong>활동 범위</strong>
               <div className="segmented" style={{ marginTop: 12 }}>
@@ -535,6 +533,7 @@ export default function HomePage() {
                 ))}
               </div>
             </div>
+
             <div>
               <strong>관리자 모드</strong>
               <div className="toggle-row" style={{ marginTop: 12 }}>
@@ -550,7 +549,8 @@ export default function HomePage() {
               </div>
               <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>관리자 모드에서 댓글 삭제 버튼이 표시됩니다.</p>
             </div>
-            <div className="state-box">도보 길찾기는 네이버 지도 웹 길찾기 화면으로 연결됩니다.</div>
+
+            <div className="state-box">지도 스타일/도보 경로는 네이버 지도 SDK + Directions API 키를 연결하면 활성화됩니다.</div>
           </div>
         </main>
       )}
