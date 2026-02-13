@@ -76,22 +76,6 @@ function isActiveStatus(status: string) {
   return s === '제휴중' || s === '제휴 중' || s === '활성' || s === 'active';
 }
 
-// ✅ 네이버 지도 길찾기(웹) 링크 생성: 회사 -> 선택한 식당
-function naverDirectionsUrl(params: {
-  slat: number;
-  slng: number;
-  sname: string;
-  dlat: number;
-  dlng: number;
-  dname: string;
-  mode?: 'walk' | 'car' | 'transit';
-}) {
-  const { slat, slng, sname, dlat, dlng, dname, mode = 'walk' } = params;
-  return `https://map.naver.com/p/directions/${slng},${slat},${encodeURIComponent(
-    sname
-  )}/${dlng},${dlat},${encodeURIComponent(dname)}/-/${mode}`;
-}
-
 export default function HomePage() {
   const [places, setPlaces] = useState<Place[]>([]);
   const [categoryColors, setCategoryColors] = useState<Record<string, string>>({});
@@ -101,7 +85,6 @@ export default function HomePage() {
   const [errorMessage, setErrorMessage] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedPlace, setSelectedPlace] = useState<PlaceWithDistance | null>(null);
-
   const [sheetMode, setSheetMode] = useState<SheetMode>('collapsed');
 
   const [tab, setTab] = useState<TabKey>('map');
@@ -110,9 +93,17 @@ export default function HomePage() {
   const [adminMode, setAdminMode] = useState(false);
   const [adminPassword, setAdminPassword] = useState('');
 
+  // ✅ 선택 해제 + 시트 접기 (핵심)
+  const clearSelection = () => {
+    setSelectedPlace(null);
+    setSheetMode('collapsed');
+  };
+
   useEffect(() => {
     const storedTheme = localStorage.getItem('theme');
-    if (storedTheme === 'dark' || storedTheme === 'light') setTheme(storedTheme);
+    if (storedTheme === 'dark' || storedTheme === 'light') {
+      setTheme(storedTheme);
+    }
   }, []);
 
   useEffect(() => {
@@ -146,7 +137,9 @@ export default function HomePage() {
 
   const categories = useMemo(() => {
     const set = new Set<string>();
-    places.forEach((place) => place.category && set.add(place.category));
+    places.forEach((place) => {
+      if (place.category) set.add(place.category);
+    });
     return Array.from(set).sort();
   }, [places]);
 
@@ -165,19 +158,26 @@ export default function HomePage() {
 
     return placesWithDistance
       .filter((place) => place.distance <= radius)
-      .filter((place) => (!keyword ? true : place.name.toLowerCase().includes(keyword)))
-      .filter((place) => (!categoryFilterActive ? true : selectedCategories.has(place.category)))
+      .filter((place) => {
+        if (!keyword) return true;
+        return place.name.toLowerCase().includes(keyword);
+      })
+      .filter((place) => {
+        if (!categoryFilterActive) return true;
+        return selectedCategories.has(place.category);
+      })
       .sort((a, b) => a.distance - b.distance);
   }, [placesWithDistance, radius, searchTerm, selectedCategories]);
 
   const topPlaces = filteredPlaces.slice(0, 20);
   const miniPlaces = filteredPlaces.slice(0, 3);
 
+  // ✅ 검색/필터로 selectedPlace가 목록에서 사라지면: 선택 해제 + 시트 접기
   useEffect(() => {
     if (selectedPlace && !filteredPlaces.find((p) => p.place_id === selectedPlace.place_id)) {
-      setSelectedPlace(null);
-      setSheetMode('collapsed');
+      clearSelection();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filteredPlaces, selectedPlace]);
 
   useEffect(() => {
@@ -187,7 +187,8 @@ export default function HomePage() {
   const handleToggleCategory = (category: string) => {
     setSelectedCategories((prev) => {
       const next = new Set(prev);
-      next.has(category) ? next.delete(category) : next.add(category);
+      if (next.has(category)) next.delete(category);
+      else next.add(category);
       return next;
     });
   };
@@ -197,8 +198,8 @@ export default function HomePage() {
     setSheetMode('detail');
   };
 
-  // ✅ “뒤로가기/해제”는 한 함수로 통일 (상세 → 목록)
-  const clearSelectionToList = () => {
+  // ✅ 상세에서 “목록” 버튼: 선택 해제하되 목록은 보여주기(expanded)
+  const handleBackToList = () => {
     setSelectedPlace(null);
     setSheetMode('expanded');
   };
@@ -239,25 +240,8 @@ export default function HomePage() {
     handleSelectPlace(found);
   };
 
-  // ✅ “메뉴/시트/지도 제외한 곳” 클릭 시 자동으로 선택 해제
-  const handleGlobalPointerDownCapture = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (!selectedPlace) return;
-
-    const target = event.target as HTMLElement | null;
-    if (!target) return;
-
-    // 바텀시트 / 하단 메뉴 클릭은 유지
-    if (target.closest('.bottom-sheet') || target.closest('.bottom-nav')) return;
-
-    // 지도 영역 클릭은 MapView에서 처리(배경 클릭 시 해제 / 마커 클릭 시 선택)
-    if (target.closest('.map-view__map')) return;
-
-    // 그 외 영역 클릭 => 선택 해제
-    clearSelectionToList();
-  };
-
   return (
-    <div className="app-shell" onPointerDownCapture={handleGlobalPointerDownCapture}>
+    <div className="app-shell">
       {tab !== 'settings' && (
         <div className="top-bar">
           <div className="search-row">
@@ -299,7 +283,7 @@ export default function HomePage() {
             selectedCategories={Array.from(selectedCategories)}
             selectedPlaceId={selectedPlace?.place_id ?? null}
             onSelectPlaceId={handleSelectPlaceIdFromMap}
-            onClearSelection={clearSelectionToList} // ✅ 지도 배경 클릭 시 해제
+            onClearSelection={clearSelection} // ✅ 지도 클릭하면 선택 해제 + 시트 접기
           />
 
           <BottomSheet mode={sheetMode} onModeChange={setSheetMode}>
@@ -330,28 +314,9 @@ export default function HomePage() {
 
                     {selectedPlace && (
                       <>
-                        {/* ✅ 뒤로가기 버튼 */}
-                        <button type="button" className="link-button" onClick={clearSelectionToList}>
-                          뒤로
+                        <button type="button" className="link-button" onClick={handleBackToList}>
+                          목록
                         </button>
-
-                        <a
-                          className="link-button"
-                          href={naverDirectionsUrl({
-                            slat: COMPANY_LAT,
-                            slng: COMPANY_LNG,
-                            sname: '회사',
-                            dlat: selectedPlace.lat,
-                            dlng: selectedPlace.lng,
-                            dname: selectedPlace.name,
-                            mode: 'walk',
-                          })}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          길찾기
-                        </a>
-
                         <a className="link-button" href={selectedPlace.map_url} target="_blank" rel="noopener noreferrer">
                           지도 열기
                         </a>
@@ -424,7 +389,9 @@ export default function HomePage() {
 
                 {!selectedPlace && sheetMode === 'expanded' && (
                   <div style={{ marginTop: 16 }}>
-                    <h2 style={{ margin: '0 0 12px', fontSize: 16 }}>가까운 곳 TOP 20</h2>
+                    <h2 style={{ margin: '0 0 12px', fontSize: 16 }}>
+                      가까운 곳 TOP 20
+                    </h2>
                     <div className="list">
                       {topPlaces.map((place) => (
                         <div key={place.place_id} className="list-item" onClick={() => handleSelectPlace(place)}>
@@ -535,7 +502,12 @@ export default function HomePage() {
               <strong>활동 범위</strong>
               <div className="segmented" style={{ marginTop: 12 }}>
                 {RADIUS_OPTIONS.map((option) => (
-                  <button key={option} type="button" className={option === radius ? 'active' : ''} onClick={() => setRadius(option)}>
+                  <button
+                    key={option}
+                    type="button"
+                    className={option === radius ? 'active' : ''}
+                    onClick={() => setRadius(option)}
+                  >
                     {option}m
                   </button>
                 ))}
@@ -563,7 +535,16 @@ export default function HomePage() {
 
       <nav className="bottom-nav">
         {TABS.map((item) => (
-          <button key={item.key} type="button" className={tab === item.key ? 'active' : ''} onClick={() => setTab(item.key)}>
+          <button
+            key={item.key}
+            type="button"
+            className={tab === item.key ? 'active' : ''}
+            onClick={() => {
+              // ✅ 탭 이동 시: 선택 해제 + 시트 접기
+              clearSelection();
+              setTab(item.key);
+            }}
+          >
             {item.label}
           </button>
         ))}
