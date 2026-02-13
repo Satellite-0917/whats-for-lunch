@@ -24,6 +24,10 @@ type MapViewProps = {
 
   places?: Place[];
   selectedCategories?: string[];
+
+  // ✅ 추가: 마커(식당) 클릭하면 부모에게 알려주기
+  selectedPlaceId?: string | null;
+  onSelectPlaceId?: (placeId: string) => void;
 };
 
 export default function MapView({
@@ -33,6 +37,9 @@ export default function MapView({
   markerCount,
   places = [],
   selectedCategories = [],
+
+  selectedPlaceId = null,
+  onSelectPlaceId,
 }: MapViewProps) {
   const mapRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<any>(null);
@@ -109,15 +116,40 @@ export default function MapView({
     return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
   };
 
+  // ✅ 선택된 마커(식당) 강조용 아이콘 (조금 크게)
+  const makeSelectedPinSvgDataUrl = (color: string) => {
+    const svg = `
+      <svg xmlns="http://www.w3.org/2000/svg" width="36" height="44" viewBox="0 0 36 44">
+        <path d="M18 0C10.8 0 5 5.8 5 13c0 10 13 31 13 31s13-21 13-31C31 5.8 25.2 0 18 0z"
+              fill="${color}" />
+        <circle cx="18" cy="13" r="5.5" fill="white" fill-opacity="0.95"/>
+      </svg>
+    `.trim();
+    return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+  };
+
   const normalizeCategory = (v: string) => (v ?? '').trim(); // ✅ 공백 때문에 필터 안 맞는 문제 방지
 
-  const getIconUrlByCategory = (category: string) => {
+  const getColorByCategory = (category: string) => {
     const cat = normalizeCategory(category);
-    const color = CATEGORY_COLOR[cat] ?? '#666666';
+    return CATEGORY_COLOR[cat] ?? '#666666';
+  };
+
+  const getIconUrlByCategory = (category: string) => {
+    const color = getColorByCategory(category);
     if (!iconCacheRef.current[color]) {
       iconCacheRef.current[color] = makePinSvgDataUrl(color);
     }
     return iconCacheRef.current[color];
+  };
+
+  const getSelectedIconUrlByCategory = (category: string) => {
+    const color = getColorByCategory(category);
+    const key = `${color}__selected`;
+    if (!iconCacheRef.current[key]) {
+      iconCacheRef.current[key] = makeSelectedPinSvgDataUrl(color);
+    }
+    return iconCacheRef.current[key];
   };
 
   const isVisibleByFilter = (category: string) => {
@@ -128,10 +160,10 @@ export default function MapView({
   };
 
   useEffect(() => {
-    // ✅ 가장 먼저: props가 들어오는지부터 로그로 확인
     dlog('places length:', places?.length, 'sample:', places?.[0]);
     dlog('selectedCategories:', selectedCategories);
-  }, [places, selectedCategories]);
+    dlog('selectedPlaceId:', selectedPlaceId);
+  }, [places, selectedCategories, selectedPlaceId]);
 
   useEffect(() => {
     if (!ncpKeyId) {
@@ -215,7 +247,6 @@ export default function MapView({
             continue;
           }
 
-          // ✅ 문자열/숫자 모두 숫자로 변환
           const lat = Number(p.lat);
           const lng = Number(p.lng);
 
@@ -232,7 +263,7 @@ export default function MapView({
           } else {
             const iconUrl = getIconUrlByCategory(p.category);
 
-            placeMarkersRef.current[p.id] = new naver.maps.Marker({
+            const marker = new naver.maps.Marker({
               position,
               map,
               title: p.name,
@@ -244,6 +275,17 @@ export default function MapView({
               },
               clickable: true,
             });
+
+            // ✅ 핵심: “마커 클릭” → 부모에게 선택된 식당 id 알려주기
+            naver.maps.Event.addListener(marker, 'click', () => {
+              dlog('marker clicked:', p.id, p.name);
+              onSelectPlaceId?.(p.id);
+
+              // (선택) 클릭한 위치로 살짝 이동
+              map.panTo(position);
+            });
+
+            placeMarkersRef.current[p.id] = marker;
             created++;
           }
         }
@@ -255,8 +297,10 @@ export default function MapView({
         for (const p of places) {
           const marker = placeMarkersRef.current[p.id];
           if (!marker) continue;
+
           const visible = isVisibleByFilter(p.category);
           marker.setMap(visible ? map : null);
+
           if (visible) shown++;
           else hidden++;
         }
@@ -286,7 +330,28 @@ export default function MapView({
     };
 
     init();
-  }, [ncpKeyId, companyLat, companyLng, companyIconUrl, places, selectedCategories, CATEGORY_COLOR]);
+  }, [ncpKeyId, companyLat, companyLng, companyIconUrl, places, selectedCategories, CATEGORY_COLOR, onSelectPlaceId]);
+
+  // ✅ 선택된 마커 아이콘만 “크게” 바꿔주기 (선택 표시)
+  useEffect(() => {
+    const naver = window.naver;
+    if (!naver?.maps) return;
+
+    for (const p of places) {
+      const marker = placeMarkersRef.current[p.id];
+      if (!marker) continue;
+
+      const isSelected = selectedPlaceId && p.id === selectedPlaceId;
+      const iconUrl = isSelected ? getSelectedIconUrlByCategory(p.category) : getIconUrlByCategory(p.category);
+
+      marker.setIcon({
+        url: iconUrl,
+        size: new naver.maps.Size(isSelected ? 36 : 32, isSelected ? 44 : 40),
+        scaledSize: new naver.maps.Size(isSelected ? 36 : 32, isSelected ? 44 : 40),
+        anchor: new naver.maps.Point(isSelected ? 18 : 16, isSelected ? 44 : 40),
+      });
+    }
+  }, [places, selectedPlaceId]);
 
   return (
     <div className="map-view">
