@@ -82,6 +82,24 @@ function isActiveStatus(status: string) {
   return s === '제휴중' || s === '제휴 중' || s === '활성' || s === 'active';
 }
 
+// ✅ 네이버 지도 길찾기(웹) 링크 생성: 회사 -> 선택한 식당
+function naverDirectionsUrl(params: {
+  slat: number;
+  slng: number;
+  sname: string;
+  dlat: number;
+  dlng: number;
+  dname: string;
+  mode?: 'walk' | 'car' | 'transit';
+}) {
+  const { slat, slng, sname, dlat, dlng, dname, mode = 'walk' } = params;
+
+  // 형식: /directions/{slng},{slat},{sname}/{dlng},{dlat},{dname}/-/{mode}
+  return `https://map.naver.com/p/directions/${slng},${slat},${encodeURIComponent(
+    sname
+  )}/${dlng},${dlat},${encodeURIComponent(dname)}/-/${mode}`;
+}
+
 export default function HomePage() {
   const [places, setPlaces] = useState<Place[]>([]);
   const [categoryColors, setCategoryColors] = useState<Record<string, string>>({});
@@ -284,7 +302,6 @@ export default function HomePage() {
             markerCount={filteredPlaces.length}
             places={mapPlaces}
             selectedCategories={Array.from(selectedCategories)}
-            // ✅ 추가 2개: “선택된 id” + “마커 클릭 시 호출”
             selectedPlaceId={selectedPlace?.place_id ?? null}
             onSelectPlaceId={handleSelectPlaceIdFromMap}
           />
@@ -320,6 +337,24 @@ export default function HomePage() {
                         <button type="button" className="link-button" onClick={handleBackToList}>
                           목록
                         </button>
+
+                        <a
+                          className="link-button"
+                          href={naverDirectionsUrl({
+                            slat: COMPANY_LAT,
+                            slng: COMPANY_LNG,
+                            sname: '회사',
+                            dlat: selectedPlace.lat,
+                            dlng: selectedPlace.lng,
+                            dname: selectedPlace.name,
+                            mode: 'walk', // ✅ 도보 길찾기 (원하면 'car'로 변경)
+                          })}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          길찾기
+                        </a>
+
                         <a className="link-button" href={selectedPlace.map_url} target="_blank" rel="noopener noreferrer">
                           지도 열기
                         </a>
@@ -338,10 +373,6 @@ export default function HomePage() {
                       <span style={{ fontSize: 12, color: 'var(--muted)' }}>
                         도보 약 {formatWalkMinutes(selectedPlace.distance)}분
                       </span>
-                    </div>
-
-                    <div className="state-box" style={{ marginTop: 10 }}>
-                      도보 경로/시간은 네이버 Directions API 연동 후 표시됩니다.
                     </div>
 
                     <CommentSection placeId={selectedPlace.place_id} adminMode={adminMode} adminPassword={adminPassword} />
