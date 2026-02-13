@@ -2,9 +2,11 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 
+type BottomSheetMode = 'collapsed' | 'expanded' | 'detail';
+
 type BottomSheetProps = {
-  mode: 'collapsed' | 'expanded' | 'detail';
-  onModeChange: (mode: 'collapsed' | 'expanded' | 'detail') => void;
+  mode: BottomSheetMode;
+  onModeChange: (mode: BottomSheetMode) => void;
   children: React.ReactNode;
 };
 
@@ -50,16 +52,27 @@ export default function BottomSheet({ mode, onModeChange, children }: BottomShee
     startY.current = null;
     setDragOffset(0);
 
+    // ✅ 드래그 동작을 mode별로 자연스럽게
+    // 위로 드래그(음수) = 더 펼치기
     if (delta < -60) {
-      onModeChange('expanded');
-    } else if (delta > 60) {
-      onModeChange('collapsed');
+      if (mode === 'collapsed') onModeChange('detail');
+      else onModeChange('expanded');
+      return;
+    }
+
+    // 아래로 드래그(양수) = 더 접기
+    if (delta > 60) {
+      if (mode === 'expanded') onModeChange('detail');
+      else onModeChange('collapsed');
+      return;
     }
   };
 
   const handleToggle = () => {
-    if (mode === 'expanded') onModeChange('collapsed');
-    else onModeChange('expanded');
+    // ✅ 클릭 토글도 detail 고려
+    if (mode === 'collapsed') onModeChange('detail');
+    else if (mode === 'detail') onModeChange('expanded');
+    else onModeChange('collapsed');
   };
 
   const height = SNAP_POINTS[mode];
