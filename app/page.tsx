@@ -76,6 +76,14 @@ function isActiveStatus(status: string) {
   return s === '제휴중' || s === '제휴 중' || s === '활성' || s === 'active';
 }
 
+// ✅ 회사 -> 식당 "도보 길찾기" URL (네이버 지도)
+function buildNaverWalkDirectionsUrl(place: { name: string; lat: number; lng: number }) {
+  // 출발: 회사 / 도착: 식당 / 이동수단: 도보(walk)
+  return `https://map.naver.com/p/directions/${COMPANY_LNG},${COMPANY_LAT},회사,${place.lng},${place.lat},${encodeURIComponent(
+    place.name
+  )},walk`;
+}
+
 export default function HomePage() {
   const [places, setPlaces] = useState<Place[]>([]);
   const [categoryColors, setCategoryColors] = useState<Record<string, string>>({});
@@ -93,7 +101,7 @@ export default function HomePage() {
   const [adminMode, setAdminMode] = useState(false);
   const [adminPassword, setAdminPassword] = useState('');
 
-  // ✅ 선택 해제 + 시트 접기 (핵심)
+  // ✅ 선택 해제 + 시트 접기
   const clearSelection = () => {
     setSelectedPlace(null);
     setSheetMode('collapsed');
@@ -283,7 +291,7 @@ export default function HomePage() {
             selectedCategories={Array.from(selectedCategories)}
             selectedPlaceId={selectedPlace?.place_id ?? null}
             onSelectPlaceId={handleSelectPlaceIdFromMap}
-            onClearSelection={clearSelection} // ✅ 지도 클릭하면 선택 해제 + 시트 접기
+            onClearSelection={clearSelection}
           />
 
           <BottomSheet mode={sheetMode} onModeChange={setSheetMode}>
@@ -301,7 +309,7 @@ export default function HomePage() {
                     <p style={{ margin: '4px 0', color: 'var(--muted)', fontSize: 13 }}>{summarySubtitle}</p>
                   </div>
 
-                  <div style={{ display: 'flex', gap: 8 }}>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                     {!selectedPlace && (
                       <button
                         type="button"
@@ -317,8 +325,23 @@ export default function HomePage() {
                         <button type="button" className="link-button" onClick={handleBackToList}>
                           목록
                         </button>
+
                         <a className="link-button" href={selectedPlace.map_url} target="_blank" rel="noopener noreferrer">
                           지도 열기
+                        </a>
+
+                        {/* ✅ 회사 -> 식당 도보 길찾기 (복구) */}
+                        <a
+                          className="link-button"
+                          href={buildNaverWalkDirectionsUrl({
+                            name: selectedPlace.name,
+                            lat: selectedPlace.lat,
+                            lng: selectedPlace.lng,
+                          })}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          길찾기
                         </a>
                       </>
                     )}
@@ -389,9 +412,7 @@ export default function HomePage() {
 
                 {!selectedPlace && sheetMode === 'expanded' && (
                   <div style={{ marginTop: 16 }}>
-                    <h2 style={{ margin: '0 0 12px', fontSize: 16 }}>
-                      가까운 곳 TOP 20
-                    </h2>
+                    <h2 style={{ margin: '0 0 12px', fontSize: 16 }}>가까운 곳 TOP 20</h2>
                     <div className="list">
                       {topPlaces.map((place) => (
                         <div key={place.place_id} className="list-item" onClick={() => handleSelectPlace(place)}>
@@ -466,10 +487,20 @@ export default function HomePage() {
                     도보 약 {formatWalkMinutes(randomPick.distance)}분
                   </span>
                 </div>
-                <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
                   <a className="link-button" href={randomPick.map_url} target="_blank" rel="noopener noreferrer">
                     지도 열기
                   </a>
+
+                  <a
+                    className="link-button"
+                    href={buildNaverWalkDirectionsUrl({ name: randomPick.name, lat: randomPick.lat, lng: randomPick.lng })}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    길찾기
+                  </a>
+
                   <button
                     className="link-button"
                     type="button"
@@ -498,6 +529,7 @@ export default function HomePage() {
                 {theme === 'dark' ? '라이트' : '다크'}
               </button>
             </div>
+
             <div>
               <strong>활동 범위</strong>
               <div className="segmented" style={{ marginTop: 12 }}>
@@ -513,6 +545,7 @@ export default function HomePage() {
                 ))}
               </div>
             </div>
+
             <div>
               <strong>관리자 모드</strong>
               <div className="toggle-row" style={{ marginTop: 12 }}>
@@ -528,6 +561,7 @@ export default function HomePage() {
               </div>
               <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>관리자 모드에서 댓글 삭제 버튼이 표시됩니다.</p>
             </div>
+
             <div className="state-box">지도 스타일/도보 경로는 네이버 지도 SDK + Directions API 키를 연결하면 활성화됩니다.</div>
           </div>
         </main>
@@ -540,7 +574,6 @@ export default function HomePage() {
             type="button"
             className={tab === item.key ? 'active' : ''}
             onClick={() => {
-              // ✅ 탭 이동 시: 선택 해제 + 시트 접기
               clearSelection();
               setTab(item.key);
             }}
