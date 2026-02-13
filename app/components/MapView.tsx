@@ -1,573 +1,356 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import BottomSheet from './components/BottomSheet';
-import CommentSection from './components/CommentSection';
-import MapView from './components/MapView';
+import { useEffect, useMemo, useRef } from 'react';
 
-type Place = {
-  place_id: string;
+declare global {
+  interface Window {
+    naver?: any;
+  }
+}
+
+export type Place = {
+  id: string;
   name: string;
-  group: string;
   category: string;
-  lat: number;
-  lng: number;
-  map_url: string;
-  status: string;
-  updated_at: string | null;
+  lat: number | string;
+  lng: number | string;
 };
 
-type PlaceWithDistance = Place & { distance: number };
+type MapViewProps = {
+  title: string;
+  subtitle: string;
+  selectedName?: string;
+  markerCount: number;
 
-type DataResponse = {
-  places: Place[];
-  categoryColors: Record<string, string>;
+  places?: Place[];
+  selectedCategories?: string[];
+
+  // ✅ 마커 선택/강조
+  selectedPlaceId?: string | null;
+  onSelectPlaceId?: (placeId: string) => void;
+
+  // ✅ 지도 배경 클릭 시 선택 해제
+  onClearSelection?: () => void;
 };
 
-const COMPANY_LAT = Number(process.env.NEXT_PUBLIC_COMPANY_LAT ?? '37.507520');
-const COMPANY_LNG = Number(process.env.NEXT_PUBLIC_COMPANY_LNG ?? '127.055055');
+export default function MapView({
+  title,
+  subtitle,
+  selectedName,
+  markerCount,
+  places = [],
+  selectedCategories = [],
+  selectedPlaceId = null,
+  onSelectPlaceId,
+  onClearSelection,
+}: MapViewProps) {
+  const mapRef = useRef<HTMLDivElement | null>(null);
+  const mapInstanceRef = useRef<any>(null);
 
-const RADIUS_OPTIONS = [200, 400, 600, 800, 1000];
-const DEFAULT_RADIUS = 600;
-const DEFAULT_COLOR = '#9CA3AF';
-const NEW_DAYS = 7;
-const WALK_SPEED_M_PER_MIN = 80;
+  const companyMarkerRef = useRef<any>(null);
+  const placeMarkersRef = useRef<Record<string, any>>({});
+  const iconCacheRef = useRef<Record<string, string>>({}); // color -> dataUrl
+  const mapClickBoundRef = useRef(false); // ✅ 지도 클릭 리스너 중복 방지
 
-const TABS = [
-  { key: 'map', label: '지도' },
-  { key: 'random', label: '랜덤 추천' },
-  { key: 'settings', label: '설정' },
-] as const;
+  const ncpKeyId = process.env.NEXT_PUBLIC_NAVER_MAP_CLIENT_ID;
+  const companyLat = Number(process.env.NEXT_PUBLIC_COMPANY_LAT ?? '37.507520');
+  const companyLng = Number(process.env.NEXT_PUBLIC_COMPANY_LNG ?? '127.055055');
 
-type TabKey = (typeof TABS)[number]['key'];
-type SheetMode = 'collapsed' | 'expanded' | 'detail';
-
-function toMeters(distanceKm: number) {
-  return Math.round(distanceKm * 1000);
-}
-
-function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number) {
-  const toRad = (value: number) => (value * Math.PI) / 180;
-  const earthRadiusKm = 6371;
-  const dLat = toRad(lat2 - lat1);
-  const dLng = toRad(lng2 - lng1);
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return toMeters(earthRadiusKm * c);
-}
-
-function isNew(updatedAt: string | null) {
-  if (!updatedAt) return false;
-  const parsed = new Date(updatedAt);
-  if (Number.isNaN(parsed.getTime())) return false;
-  const diff = Date.now() - parsed.getTime();
-  return diff <= NEW_DAYS * 24 * 60 * 60 * 1000;
-}
-
-function formatWalkMinutes(distanceMeters: number) {
-  return Math.max(1, Math.round(distanceMeters / WALK_SPEED_M_PER_MIN));
-}
-
-function isActiveStatus(status: string) {
-  const s = (status ?? '').trim();
-  if (!s) return true;
-  return s === '제휴중' || s === '제휴 중' || s === '활성' || s === 'active';
-}
-
-// ✅ 네이버 지도 길찾기(웹) 링크 생성: 회사 -> 선택한 식당
-function naverDirectionsUrl(params: {
-  slat: number;
-  slng: number;
-  sname: string;
-  dlat: number;
-  dlng: number;
-  dname: string;
-  mode?: 'walk' | 'car' | 'transit';
-}) {
-  const { slat, slng, sname, dlat, dlng, dname, mode = 'walk' } = params;
-  return `https://map.naver.com/p/directions/${slng},${slat},${encodeURIComponent(
-    sname
-  )}/${dlng},${dlat},${encodeURIComponent(dname)}/-/${mode}`;
-}
-
-export default function HomePage() {
-  const [places, setPlaces] = useState<Place[]>([]);
-  const [categoryColors, setCategoryColors] = useState<Record<string, string>>({});
-  const [selectedCategories, setSelectedCategories] = useState<Set<string>>(new Set());
-  const [radius, setRadius] = useState(DEFAULT_RADIUS);
-  const [status, setStatus] = useState<'loading' | 'idle' | 'error'>('loading');
-  const [errorMessage, setErrorMessage] = useState('');
-  const [searchTerm, setSearchTerm] = useState('');
-  const [selectedPlace, setSelectedPlace] = useState<PlaceWithDistance | null>(null);
-
-  const [sheetMode, setSheetMode] = useState<SheetMode>('collapsed');
-
-  const [tab, setTab] = useState<TabKey>('map');
-  const [randomPick, setRandomPick] = useState<PlaceWithDistance | null>(null);
-  const [theme, setTheme] = useState<'light' | 'dark'>('light');
-  const [adminMode, setAdminMode] = useState(false);
-  const [adminPassword, setAdminPassword] = useState('');
-
-  useEffect(() => {
-    const storedTheme = localStorage.getItem('theme');
-    if (storedTheme === 'dark' || storedTheme === 'light') setTheme(storedTheme);
-  }, []);
-
-  useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-    localStorage.setItem('theme', theme);
-  }, [theme]);
-
-  useEffect(() => {
-    let isMounted = true;
-    const load = async () => {
-      try {
-        setStatus('loading');
-        const response = await fetch('/api/places');
-        const data = (await response.json()) as DataResponse & { message?: string };
-        if (!response.ok) throw new Error(data.message ?? '데이터를 불러오지 못했습니다.');
-        if (!isMounted) return;
-        setPlaces(data.places);
-        setCategoryColors(data.categoryColors);
-        setStatus('idle');
-      } catch (error) {
-        if (!isMounted) return;
-        setStatus('error');
-        setErrorMessage(error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.');
-      }
-    };
-    load();
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
-  const categories = useMemo(() => {
-    const set = new Set<string>();
-    places.forEach((place) => place.category && set.add(place.category));
-    return Array.from(set).sort();
-  }, [places]);
-
-  const placesWithDistance = useMemo(() => {
-    return places
-      .filter((place) => isActiveStatus(place.status))
-      .map((place) => ({
-        ...place,
-        distance: haversineMeters(COMPANY_LAT, COMPANY_LNG, place.lat, place.lng),
-      }));
-  }, [places]);
-
-  const filteredPlaces = useMemo(() => {
-    const keyword = searchTerm.trim().toLowerCase();
-    const categoryFilterActive = selectedCategories.size > 0;
-
-    return placesWithDistance
-      .filter((place) => place.distance <= radius)
-      .filter((place) => (!keyword ? true : place.name.toLowerCase().includes(keyword)))
-      .filter((place) => (!categoryFilterActive ? true : selectedCategories.has(place.category)))
-      .sort((a, b) => a.distance - b.distance);
-  }, [placesWithDistance, radius, searchTerm, selectedCategories]);
-
-  const topPlaces = filteredPlaces.slice(0, 20);
-  const miniPlaces = filteredPlaces.slice(0, 3);
-
-  useEffect(() => {
-    if (selectedPlace && !filteredPlaces.find((p) => p.place_id === selectedPlace.place_id)) {
-      setSelectedPlace(null);
-      setSheetMode('collapsed');
-    }
-  }, [filteredPlaces, selectedPlace]);
-
-  useEffect(() => {
-    setRandomPick(null);
-  }, [radius, selectedCategories, searchTerm, placesWithDistance]);
-
-  const handleToggleCategory = (category: string) => {
-    setSelectedCategories((prev) => {
-      const next = new Set(prev);
-      next.has(category) ? next.delete(category) : next.add(category);
-      return next;
-    });
+  // ✅ 디버그 로그 ON/OFF
+  const DEBUG = true;
+  const dlog = (...args: any[]) => {
+    if (DEBUG) console.log('[MapView]', ...args);
   };
 
-  const handleSelectPlace = (place: PlaceWithDistance) => {
-    setSelectedPlace(place);
-    setSheetMode('detail');
-  };
-
-  // ✅ “뒤로가기/해제”는 한 함수로 통일 (상세 → 목록)
-  const clearSelectionToList = () => {
-    setSelectedPlace(null);
-    setSheetMode('expanded');
-  };
-
-  const handleRandomPick = () => {
-    if (!filteredPlaces.length) {
-      setRandomPick(null);
-      return;
-    }
-    const randomIndex = Math.floor(Math.random() * filteredPlaces.length);
-    setRandomPick(filteredPlaces[randomIndex]);
-  };
-
-  const getCategoryColor = (category: string) => categoryColors[category] ?? DEFAULT_COLOR;
-
-  const summaryTitle = selectedPlace ? selectedPlace.name : '근처 목록';
-  const summarySubtitle = selectedPlace
-    ? `${selectedPlace.category} · 도보 ${formatWalkMinutes(selectedPlace.distance)}분`
-    : `${filteredPlaces.length}곳 · 반경 ${radius}m`;
-
-  const mapSubtitle = `회사 기준 반경 ${radius}m · ${filteredPlaces.length}곳`;
-
-  const mapPlaces = useMemo(
-    () =>
-      filteredPlaces.map((p) => ({
-        id: p.place_id,
-        name: p.name,
-        category: p.category,
-        lat: p.lat,
-        lng: p.lng,
-      })),
-    [filteredPlaces]
+  /** ✅ 카테고리별 색상표 */
+  const CATEGORY_COLOR: Record<string, string> = useMemo(
+    () => ({
+      한식: '#D32F2F',
+      중식: '#FF8F00',
+      일식: '#4CAF50',
+      양식: '#FF7043',
+      베트남: '#2ECC71',
+      분식: '#E91E63',
+      샐러드: '#8BC34A',
+      패스트푸드: '#FFC107',
+      편의점: '#2196F3',
+      카페: '#6D4C41',
+      베이커리: '#F5DEB3',
+    }),
+    []
   );
 
-  const handleSelectPlaceIdFromMap = (placeId: string) => {
-    const found = filteredPlaces.find((p) => p.place_id === placeId);
-    if (!found) return;
-    handleSelectPlace(found);
+  /** ✅ 회사(빌딩) 아이콘 */
+  const companyIconUrl = useMemo(() => {
+    const svg = `
+      <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 28 28">
+        <defs>
+          <filter id="s" x="-20%" y="-20%" width="140%" height="140%">
+            <feDropShadow dx="0" dy="1" stdDeviation="1" flood-opacity="0.25"/>
+          </filter>
+        </defs>
+        <circle cx="14" cy="14" r="12" fill="white" filter="url(#s)"/>
+        <circle cx="14" cy="14" r="12" fill="none" stroke="rgba(0,0,0,0.12)"/>
+        <g transform="translate(8,6)">
+          <rect x="0" y="4" width="12" height="14" rx="2" fill="#2D7FF9"/>
+          <rect x="3" y="0" width="6" height="18" rx="2" fill="#1F5FCC"/>
+          <g fill="rgba(255,255,255,0.9)">
+            <rect x="1.8" y="6" width="2" height="2" rx="0.4"/>
+            <rect x="8.2" y="6" width="2" height="2" rx="0.4"/>
+            <rect x="1.8" y="10" width="2" height="2" rx="0.4"/>
+            <rect x="8.2" y="10" width="2" height="2" rx="0.4"/>
+            <rect x="1.8" y="14" width="2" height="2" rx="0.4"/>
+            <rect x="8.2" y="14" width="2" height="2" rx="0.4"/>
+          </g>
+        </g>
+      </svg>
+    `;
+    return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  }, []);
+
+  /** ✅ 카테고리 핀 SVG */
+  const makePinSvgDataUrl = (color: string) => {
+    const svg = `
+      <svg xmlns="http://www.w3.org/2000/svg" width="32" height="40" viewBox="0 0 32 40">
+        <path d="M16 0C9.4 0 4 5.4 4 12c0 9.2 12 28 12 28s12-18.8 12-28C28 5.4 22.6 0 16 0z"
+              fill="${color}" />
+        <circle cx="16" cy="12" r="5" fill="white" fill-opacity="0.95"/>
+      </svg>
+    `.trim();
+    return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
   };
 
-  // ✅ “메뉴/시트/지도 제외한 곳” 클릭 시 자동으로 선택 해제
-  const handleGlobalPointerDownCapture = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (!selectedPlace) return;
-
-    const target = event.target as HTMLElement | null;
-    if (!target) return;
-
-    // 바텀시트 / 하단 메뉴 클릭은 유지
-    if (target.closest('.bottom-sheet') || target.closest('.bottom-nav')) return;
-
-    // 지도 영역 클릭은 MapView에서 처리(배경 클릭 시 해제 / 마커 클릭 시 선택)
-    if (target.closest('.map-view__map')) return;
-
-    // 그 외 영역 클릭 => 선택 해제
-    clearSelectionToList();
+  /** ✅ 선택된 마커(식당) 강조용 아이콘 */
+  const makeSelectedPinSvgDataUrl = (color: string) => {
+    const svg = `
+      <svg xmlns="http://www.w3.org/2000/svg" width="36" height="44" viewBox="0 0 36 44">
+        <path d="M18 0C10.8 0 5 5.8 5 13c0 10 13 31 13 31s13-21 13-31C31 5.8 25.2 0 18 0z"
+              fill="${color}" />
+        <circle cx="18" cy="13" r="5.5" fill="white" fill-opacity="0.95"/>
+      </svg>
+    `.trim();
+    return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
   };
+
+  const normalizeCategory = (v: string) => (v ?? '').trim();
+
+  const getColorByCategory = (category: string) => {
+    const cat = normalizeCategory(category);
+    return CATEGORY_COLOR[cat] ?? '#666666';
+  };
+
+  const getIconUrlByCategory = (category: string) => {
+    const color = getColorByCategory(category);
+    if (!iconCacheRef.current[color]) {
+      iconCacheRef.current[color] = makePinSvgDataUrl(color);
+    }
+    return iconCacheRef.current[color];
+  };
+
+  const getSelectedIconUrlByCategory = (category: string) => {
+    const color = getColorByCategory(category);
+    const key = `${color}__selected`;
+    if (!iconCacheRef.current[key]) {
+      iconCacheRef.current[key] = makeSelectedPinSvgDataUrl(color);
+    }
+    return iconCacheRef.current[key];
+  };
+
+  const isVisibleByFilter = (category: string) => {
+    const cat = normalizeCategory(category);
+    const selected = (selectedCategories ?? []).map(normalizeCategory).filter(Boolean);
+    if (selected.length === 0) return true;
+    return selected.includes(cat);
+  };
+
+  useEffect(() => {
+    dlog('places length:', places?.length, 'sample:', places?.[0]);
+    dlog('selectedCategories:', selectedCategories);
+    dlog('selectedPlaceId:', selectedPlaceId);
+  }, [places, selectedCategories, selectedPlaceId]);
+
+  useEffect(() => {
+    if (!ncpKeyId) {
+      console.error('[MapView] NEXT_PUBLIC_NAVER_MAP_CLIENT_ID is missing');
+      return;
+    }
+
+    const ensureScript = () =>
+      new Promise<void>((resolve, reject) => {
+        if (window.naver?.maps) return resolve();
+
+        const existing = document.querySelector('script[data-naver-maps="true"]') as HTMLScriptElement | null;
+        if (existing) {
+          existing.addEventListener('load', () => resolve());
+          existing.addEventListener('error', () => reject(new Error('Failed to load Naver Maps script')));
+          return;
+        }
+
+        const script = document.createElement('script');
+        script.setAttribute('data-naver-maps', 'true');
+        script.async = true;
+        script.defer = true;
+        script.src = `https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=${encodeURIComponent(ncpKeyId)}`;
+
+        script.onload = () => resolve();
+        script.onerror = () => reject(new Error('Failed to load Naver Maps script'));
+        document.head.appendChild(script);
+      });
+
+    const init = async () => {
+      try {
+        await ensureScript();
+
+        if (!mapRef.current) return;
+        const naver = window.naver;
+        if (!naver?.maps) return;
+
+        const center = new naver.maps.LatLng(companyLat, companyLng);
+
+        // ✅ 지도 생성(한 번만)
+        if (!mapInstanceRef.current) {
+          mapInstanceRef.current = new naver.maps.Map(mapRef.current, {
+            center,
+            zoom: 16,
+            zoomControl: true,
+            zoomControlOptions: { position: naver.maps.Position.TOP_RIGHT },
+          });
+          dlog('map created');
+        } else {
+          mapInstanceRef.current.setCenter(center);
+        }
+
+        const map = mapInstanceRef.current;
+
+        // ✅ 지도 배경 클릭 → 선택 해제
+        if (!mapClickBoundRef.current) {
+          mapClickBoundRef.current = true;
+          naver.maps.Event.addListener(map, 'click', () => {
+            onClearSelection?.();
+          });
+        }
+
+        // ✅ 회사 마커
+        if (!companyMarkerRef.current) {
+          companyMarkerRef.current = new naver.maps.Marker({
+            position: center,
+            map,
+            icon: {
+              url: companyIconUrl,
+              size: new naver.maps.Size(28, 28),
+              scaledSize: new naver.maps.Size(28, 28),
+              anchor: new naver.maps.Point(14, 28),
+            },
+            clickable: true,
+          });
+          dlog('company marker created');
+        } else {
+          companyMarkerRef.current.setPosition(center);
+          companyMarkerRef.current.setMap(map);
+        }
+
+        // ✅ places 마커 생성/갱신
+        for (const p of places) {
+          if (!p?.id) continue;
+
+          const lat = Number(p.lat);
+          const lng = Number(p.lng);
+          if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+
+          const position = new naver.maps.LatLng(lat, lng);
+
+          if (placeMarkersRef.current[p.id]) {
+            placeMarkersRef.current[p.id].setPosition(position);
+          } else {
+            const iconUrl = getIconUrlByCategory(p.category);
+
+            const marker = new naver.maps.Marker({
+              position,
+              map,
+              title: p.name,
+              icon: {
+                url: iconUrl,
+                size: new naver.maps.Size(32, 40),
+                scaledSize: new naver.maps.Size(32, 40),
+                anchor: new naver.maps.Point(16, 40),
+              },
+              clickable: true,
+            });
+
+            // ✅ 마커 클릭 → 선택
+            naver.maps.Event.addListener(marker, 'click', () => {
+              onSelectPlaceId?.(p.id);
+              map.panTo(position);
+            });
+
+            placeMarkersRef.current[p.id] = marker;
+          }
+        }
+
+        // ✅ 필터 show/hide
+        for (const p of places) {
+          const marker = placeMarkersRef.current[p.id];
+          if (!marker) continue;
+          const visible = isVisibleByFilter(p.category);
+          marker.setMap(visible ? map : null);
+        }
+
+        // ✅ places에서 사라진 마커 제거
+        const keep = new Set(places.map((p) => p.id));
+        for (const [id, marker] of Object.entries(placeMarkersRef.current)) {
+          if (!keep.has(id)) {
+            marker.setMap(null);
+            delete placeMarkersRef.current[id];
+          }
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    };
+
+    init();
+  }, [ncpKeyId, companyLat, companyLng, companyIconUrl, places, selectedCategories, CATEGORY_COLOR, onSelectPlaceId, onClearSelection]);
+
+  // ✅ 선택된 마커 아이콘만 “크게” 바꿔주기
+  useEffect(() => {
+    const naver = window.naver;
+    if (!naver?.maps) return;
+
+    for (const p of places) {
+      const marker = placeMarkersRef.current[p.id];
+      if (!marker) continue;
+
+      const isSelected = selectedPlaceId && p.id === selectedPlaceId;
+      const iconUrl = isSelected ? getSelectedIconUrlByCategory(p.category) : getIconUrlByCategory(p.category);
+
+      marker.setIcon({
+        url: iconUrl,
+        size: new naver.maps.Size(isSelected ? 36 : 32, isSelected ? 44 : 40),
+        scaledSize: new naver.maps.Size(isSelected ? 36 : 32, isSelected ? 44 : 40),
+        anchor: new naver.maps.Point(isSelected ? 18 : 16, isSelected ? 44 : 40),
+      });
+    }
+  }, [places, selectedPlaceId]);
 
   return (
-    <div className="app-shell" onPointerDownCapture={handleGlobalPointerDownCapture}>
-      {tab !== 'settings' && (
-        <div className="top-bar">
-          <div className="search-row">
-            <input
-              value={searchTerm}
-              onChange={(event) => setSearchTerm(event.target.value)}
-              placeholder="가게 이름을 검색하세요"
-            />
-          </div>
+    <div className="map-view">
+      <div className="map-view__overlay">
+        <strong>{title}</strong>
+        <span>{subtitle}</span>
+        <span>{markerCount}개 마커 표시 중</span>
+        {selectedName && <span className="map-view__selected">선택됨: {selectedName}</span>}
+      </div>
 
-          <div className="chip-row">
-            {categories.map((category) => {
-              const isSelected = selectedCategories.has(category);
-              const color = getCategoryColor(category);
-              return (
-                <button
-                  key={category}
-                  type="button"
-                  className={`chip ${isSelected ? 'selected' : ''}`}
-                  style={isSelected ? { backgroundColor: color } : { borderColor: color, color: color }}
-                  onClick={() => handleToggleCategory(category)}
-                >
-                  {category}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {tab === 'map' && (
-        <>
-          <MapView
-            title="오늘 뭐 먹지?"
-            subtitle={mapSubtitle}
-            selectedName={selectedPlace?.name}
-            markerCount={filteredPlaces.length}
-            places={mapPlaces}
-            selectedCategories={Array.from(selectedCategories)}
-            selectedPlaceId={selectedPlace?.place_id ?? null}
-            onSelectPlaceId={handleSelectPlaceIdFromMap}
-            onClearSelection={clearSelectionToList} // ✅ 지도 배경 클릭 시 해제
-          />
-
-          <BottomSheet mode={sheetMode} onModeChange={setSheetMode}>
-            {status === 'loading' && <div className="state-box">데이터를 불러오는 중입니다...</div>}
-            {status === 'error' && <div className="state-box">{errorMessage}</div>}
-            {status === 'idle' && filteredPlaces.length === 0 && (
-              <div className="state-box">조건에 맞는 장소가 없습니다. 반경이나 필터를 조정해 보세요.</div>
-            )}
-
-            {status === 'idle' && filteredPlaces.length > 0 && (
-              <div className="summary-card">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
-                  <div style={{ flex: 1 }}>
-                    <strong>{summaryTitle}</strong>
-                    <p style={{ margin: '4px 0', color: 'var(--muted)', fontSize: 13 }}>{summarySubtitle}</p>
-                  </div>
-
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    {!selectedPlace && (
-                      <button
-                        type="button"
-                        className="link-button"
-                        onClick={() => setSheetMode((prev) => (prev === 'expanded' ? 'collapsed' : 'expanded'))}
-                      >
-                        {sheetMode === 'expanded' ? '접기' : '전체보기'}
-                      </button>
-                    )}
-
-                    {selectedPlace && (
-                      <>
-                        {/* ✅ 뒤로가기 버튼 */}
-                        <button type="button" className="link-button" onClick={clearSelectionToList}>
-                          뒤로
-                        </button>
-
-                        <a
-                          className="link-button"
-                          href={naverDirectionsUrl({
-                            slat: COMPANY_LAT,
-                            slng: COMPANY_LNG,
-                            sname: '회사',
-                            dlat: selectedPlace.lat,
-                            dlng: selectedPlace.lng,
-                            dname: selectedPlace.name,
-                            mode: 'walk',
-                          })}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          길찾기
-                        </a>
-
-                        <a className="link-button" href={selectedPlace.map_url} target="_blank" rel="noopener noreferrer">
-                          지도 열기
-                        </a>
-                      </>
-                    )}
-                  </div>
-                </div>
-
-                {selectedPlace && (
-                  <>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10 }}>
-                      <span className="badge" style={{ background: getCategoryColor(selectedPlace.category) }}>
-                        {selectedPlace.category}
-                      </span>
-                      {isNew(selectedPlace.updated_at) && <span className="new-badge">NEW</span>}
-                      <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-                        도보 약 {formatWalkMinutes(selectedPlace.distance)}분
-                      </span>
-                    </div>
-
-                    <CommentSection placeId={selectedPlace.place_id} adminMode={adminMode} adminPassword={adminPassword} />
-                  </>
-                )}
-
-                {!selectedPlace && sheetMode === 'collapsed' && (
-                  <div style={{ marginTop: 12 }}>
-                    <h2 style={{ margin: '0 0 10px', fontSize: 14, color: 'var(--muted)' }}>가까운 곳 미리보기</h2>
-                    <div className="list">
-                      {miniPlaces.map((place) => (
-                        <div key={place.place_id} className="list-item" onClick={() => handleSelectPlace(place)}>
-                          <div className="meta">
-                            <strong>{place.name}</strong>
-                            <span>
-                              <span
-                                style={{
-                                  display: 'inline-block',
-                                  width: 8,
-                                  height: 8,
-                                  borderRadius: '50%',
-                                  background: getCategoryColor(place.category),
-                                  marginRight: 6,
-                                }}
-                              />
-                              {place.category}
-                              {isNew(place.updated_at) && (
-                                <span className="new-badge" style={{ marginLeft: 6 }}>
-                                  NEW
-                                </span>
-                              )}
-                              <span style={{ marginLeft: 8, fontSize: 12, color: 'var(--muted)' }}>
-                                {formatWalkMinutes(place.distance)}분
-                              </span>
-                            </span>
-                          </div>
-
-                          <a
-                            className="link-button"
-                            href={place.map_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={(event) => event.stopPropagation()}
-                          >
-                            지도
-                          </a>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {!selectedPlace && sheetMode === 'expanded' && (
-                  <div style={{ marginTop: 16 }}>
-                    <h2 style={{ margin: '0 0 12px', fontSize: 16 }}>가까운 곳 TOP 20</h2>
-                    <div className="list">
-                      {topPlaces.map((place) => (
-                        <div key={place.place_id} className="list-item" onClick={() => handleSelectPlace(place)}>
-                          <div className="meta">
-                            <strong>{place.name}</strong>
-                            <span>
-                              <span
-                                style={{
-                                  display: 'inline-block',
-                                  width: 8,
-                                  height: 8,
-                                  borderRadius: '50%',
-                                  background: getCategoryColor(place.category),
-                                  marginRight: 6,
-                                }}
-                              />
-                              {place.category}
-                              {isNew(place.updated_at) && (
-                                <span className="new-badge" style={{ marginLeft: 6 }}>
-                                  NEW
-                                </span>
-                              )}
-                              <span style={{ marginLeft: 8, fontSize: 12, color: 'var(--muted)' }}>
-                                {formatWalkMinutes(place.distance)}분
-                              </span>
-                            </span>
-                          </div>
-
-                          <a
-                            className="link-button"
-                            href={place.map_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={(event) => event.stopPropagation()}
-                          >
-                            지도
-                          </a>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </BottomSheet>
-        </>
-      )}
-
-      {tab === 'random' && (
-        <main>
-          <h1>랜덤 추천</h1>
-          <section>
-            <button className="primary-button" type="button" onClick={handleRandomPick}>
-              랜덤 추천 받기
-            </button>
-          </section>
-          {status === 'loading' && <div className="state-box">데이터를 불러오는 중입니다...</div>}
-          {status === 'error' && <div className="state-box">{errorMessage}</div>}
-          {status === 'idle' && filteredPlaces.length === 0 && (
-            <div className="state-box">조건에 맞는 장소가 없습니다. 필터를 조정해 보세요.</div>
-          )}
-          {randomPick && (
-            <section>
-              <div className="summary-card">
-                <strong style={{ fontSize: 18 }}>{randomPick.name}</strong>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span className="badge" style={{ background: getCategoryColor(randomPick.category) }}>
-                    {randomPick.category}
-                  </span>
-                  {isNew(randomPick.updated_at) && <span className="new-badge">NEW</span>}
-                  <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-                    도보 약 {formatWalkMinutes(randomPick.distance)}분
-                  </span>
-                </div>
-                <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                  <a className="link-button" href={randomPick.map_url} target="_blank" rel="noopener noreferrer">
-                    지도 열기
-                  </a>
-                  <button
-                    className="link-button"
-                    type="button"
-                    onClick={() => {
-                      setSelectedPlace(randomPick);
-                      setSheetMode('detail');
-                      setTab('map');
-                    }}
-                  >
-                    지도에서 보기
-                  </button>
-                </div>
-              </div>
-            </section>
-          )}
-        </main>
-      )}
-
-      {tab === 'settings' && (
-        <main>
-          <h1>설정</h1>
-          <div className="settings-panel">
-            <div className="toggle-row">
-              <span>다크 모드</span>
-              <button type="button" className="link-button" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
-                {theme === 'dark' ? '라이트' : '다크'}
-              </button>
-            </div>
-            <div>
-              <strong>활동 범위</strong>
-              <div className="segmented" style={{ marginTop: 12 }}>
-                {RADIUS_OPTIONS.map((option) => (
-                  <button key={option} type="button" className={option === radius ? 'active' : ''} onClick={() => setRadius(option)}>
-                    {option}m
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div>
-              <strong>관리자 모드</strong>
-              <div className="toggle-row" style={{ marginTop: 12 }}>
-                <input
-                  type="password"
-                  placeholder="ADMIN_PASSWORD 입력"
-                  value={adminPassword}
-                  onChange={(event) => setAdminPassword(event.target.value)}
-                />
-                <button type="button" className="link-button" onClick={() => setAdminMode((prev) => !prev)}>
-                  {adminMode ? '관리자 끄기' : '관리자 켜기'}
-                </button>
-              </div>
-              <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>관리자 모드에서 댓글 삭제 버튼이 표시됩니다.</p>
-            </div>
-            <div className="state-box">지도 스타일/도보 경로는 네이버 지도 SDK + Directions API 키를 연결하면 활성화됩니다.</div>
-          </div>
-        </main>
-      )}
-
-      <nav className="bottom-nav">
-        {TABS.map((item) => (
-          <button key={item.key} type="button" className={tab === item.key ? 'active' : ''} onClick={() => setTab(item.key)}>
-            {item.label}
-          </button>
-        ))}
-      </nav>
+      <div
+        ref={mapRef}
+        className="map-view__map"
+        style={{
+          width: '100%',
+          height: 520,
+          borderRadius: 16,
+          overflow: 'hidden',
+        }}
+      />
     </div>
   );
 }
