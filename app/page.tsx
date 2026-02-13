@@ -92,9 +92,6 @@ export default function HomePage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedPlace, setSelectedPlace] = useState<PlaceWithDistance | null>(null);
 
-  // ✅ 기본값을 collapsed로 둬도 되지만,
-  //    "목록을 볼 수 없어서 진행이 안됨" 상태를 막기 위해
-  //    collapsed 상태에서도 TOP3 목록을 보여주도록 아래에서 UI를 추가함.
   const [sheetMode, setSheetMode] = useState<SheetMode>('collapsed');
 
   const [tab, setTab] = useState<TabKey>('map');
@@ -151,10 +148,10 @@ export default function HomePage() {
 
   const placesWithDistance = useMemo(() => {
     return places
-      .filter((place) => isActiveStatus(place.status)) // ✅ status 유연 처리
+      .filter((place) => isActiveStatus(place.status))
       .map((place) => ({
         ...place,
-        distance: haversineMeters(COMPANY_LAT, COMPANY_LNG, place.lat, place.lng), // ✅ 회사 좌표 env
+        distance: haversineMeters(COMPANY_LAT, COMPANY_LNG, place.lat, place.lng),
       }));
   }, [places]);
 
@@ -176,7 +173,7 @@ export default function HomePage() {
   }, [placesWithDistance, radius, searchTerm, selectedCategories]);
 
   const topPlaces = filteredPlaces.slice(0, 20);
-  const miniPlaces = filteredPlaces.slice(0, 3); // ✅ collapsed에서도 최소 3개 보여주기용
+  const miniPlaces = filteredPlaces.slice(0, 3);
 
   useEffect(() => {
     if (selectedPlace && !filteredPlaces.find((place) => place.place_id === selectedPlace.place_id)) {
@@ -226,7 +223,7 @@ export default function HomePage() {
 
   const mapSubtitle = `회사 기준 반경 ${radius}m · ${filteredPlaces.length}곳`;
 
-  // ✅ MapView용 데이터로 변환 (id 필드 필수)
+  // ✅ MapView용 데이터로 변환 (MapView는 id 필드 사용)
   const mapPlaces = useMemo(
     () =>
       filteredPlaces.map((p) => ({
@@ -238,6 +235,13 @@ export default function HomePage() {
       })),
     [filteredPlaces]
   );
+
+  // ✅ 핵심: 지도 마커 클릭으로 들어온 placeId를 selectedPlace로 바꿔주는 함수
+  const handleSelectPlaceIdFromMap = (placeId: string) => {
+    const found = filteredPlaces.find((p) => p.place_id === placeId);
+    if (!found) return;
+    handleSelectPlace(found);
+  };
 
   return (
     <div className="app-shell">
@@ -280,6 +284,9 @@ export default function HomePage() {
             markerCount={filteredPlaces.length}
             places={mapPlaces}
             selectedCategories={Array.from(selectedCategories)}
+            // ✅ 추가 2개: “선택된 id” + “마커 클릭 시 호출”
+            selectedPlaceId={selectedPlace?.place_id ?? null}
+            onSelectPlaceId={handleSelectPlaceIdFromMap}
           />
 
           <BottomSheet mode={sheetMode} onModeChange={setSheetMode}>
@@ -289,17 +296,14 @@ export default function HomePage() {
               <div className="state-box">조건에 맞는 장소가 없습니다. 반경이나 필터를 조정해 보세요.</div>
             )}
 
-            {/* ✅ 데이터가 있을 때 */}
             {status === 'idle' && filteredPlaces.length > 0 && (
               <div className="summary-card">
-                {/* ✅ 요약/상단 */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
                   <div style={{ flex: 1 }}>
                     <strong>{summaryTitle}</strong>
                     <p style={{ margin: '4px 0', color: 'var(--muted)', fontSize: 13 }}>{summarySubtitle}</p>
                   </div>
 
-                  {/* ✅ 오른쪽 버튼들 */}
                   <div style={{ display: 'flex', gap: 8 }}>
                     {!selectedPlace && (
                       <button
@@ -324,7 +328,6 @@ export default function HomePage() {
                   </div>
                 </div>
 
-                {/* ✅ 선택된 가게(상세) */}
                 {selectedPlace && (
                   <>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10 }}>
@@ -345,7 +348,6 @@ export default function HomePage() {
                   </>
                 )}
 
-                {/* ✅ 선택된 가게가 없을 때: "collapsed에서도" 최소한 목록을 보여준다 */}
                 {!selectedPlace && sheetMode === 'collapsed' && (
                   <div style={{ marginTop: 12 }}>
                     <h2 style={{ margin: '0 0 10px', fontSize: 14, color: 'var(--muted)' }}>가까운 곳 미리보기</h2>
@@ -392,7 +394,6 @@ export default function HomePage() {
                   </div>
                 )}
 
-                {/* ✅ expanded일 때: TOP20 전체 목록 */}
                 {!selectedPlace && sheetMode === 'expanded' && (
                   <div style={{ marginTop: 16 }}>
                     <h2 style={{ margin: '0 0 12px', fontSize: 16 }}>가까운 곳 TOP 20</h2>
