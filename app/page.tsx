@@ -24,10 +24,6 @@ type DataResponse = {
   categoryColors: Record<string, string>;
 };
 
-/**
- * ✅ 회사 좌표는 MapView랑 반드시 동일하게(env) 사용
- * - Vercel env가 없을 때를 대비해 기존 MapView 기본값과 동일하게 둠
- */
 const COMPANY_LAT = Number(process.env.NEXT_PUBLIC_COMPANY_LAT ?? '37.507520');
 const COMPANY_LNG = Number(process.env.NEXT_PUBLIC_COMPANY_LNG ?? '127.055055');
 
@@ -44,7 +40,6 @@ const TABS = [
 ] as const;
 
 type TabKey = (typeof TABS)[number]['key'];
-
 type SheetMode = 'collapsed' | 'expanded' | 'detail';
 
 function toMeters(distanceKm: number) {
@@ -75,10 +70,9 @@ function formatWalkMinutes(distanceMeters: number) {
   return Math.max(1, Math.round(distanceMeters / WALK_SPEED_M_PER_MIN));
 }
 
-/** ✅ status가 시트에서 조금씩 다르게 올 수 있어서 유연하게 처리 */
 function isActiveStatus(status: string) {
   const s = (status ?? '').trim();
-  if (!s) return true; // 빈 값이면 일단 포함
+  if (!s) return true;
   return s === '제휴중' || s === '제휴 중' || s === '활성' || s === 'active';
 }
 
@@ -93,8 +87,6 @@ function naverDirectionsUrl(params: {
   mode?: 'walk' | 'car' | 'transit';
 }) {
   const { slat, slng, sname, dlat, dlng, dname, mode = 'walk' } = params;
-
-  // 형식: /directions/{slng},{slat},{sname}/{dlng},{dlat},{dname}/-/{mode}
   return `https://map.naver.com/p/directions/${slng},${slat},${encodeURIComponent(
     sname
   )}/${dlng},${dlat},${encodeURIComponent(dname)}/-/${mode}`;
@@ -120,9 +112,7 @@ export default function HomePage() {
 
   useEffect(() => {
     const storedTheme = localStorage.getItem('theme');
-    if (storedTheme === 'dark' || storedTheme === 'light') {
-      setTheme(storedTheme);
-    }
+    if (storedTheme === 'dark' || storedTheme === 'light') setTheme(storedTheme);
   }, []);
 
   useEffect(() => {
@@ -137,9 +127,7 @@ export default function HomePage() {
         setStatus('loading');
         const response = await fetch('/api/places');
         const data = (await response.json()) as DataResponse & { message?: string };
-        if (!response.ok) {
-          throw new Error(data.message ?? '데이터를 불러오지 못했습니다.');
-        }
+        if (!response.ok) throw new Error(data.message ?? '데이터를 불러오지 못했습니다.');
         if (!isMounted) return;
         setPlaces(data.places);
         setCategoryColors(data.categoryColors);
@@ -158,9 +146,7 @@ export default function HomePage() {
 
   const categories = useMemo(() => {
     const set = new Set<string>();
-    places.forEach((place) => {
-      if (place.category) set.add(place.category);
-    });
+    places.forEach((place) => place.category && set.add(place.category));
     return Array.from(set).sort();
   }, [places]);
 
@@ -179,14 +165,8 @@ export default function HomePage() {
 
     return placesWithDistance
       .filter((place) => place.distance <= radius)
-      .filter((place) => {
-        if (!keyword) return true;
-        return place.name.toLowerCase().includes(keyword);
-      })
-      .filter((place) => {
-        if (!categoryFilterActive) return true;
-        return selectedCategories.has(place.category);
-      })
+      .filter((place) => (!keyword ? true : place.name.toLowerCase().includes(keyword)))
+      .filter((place) => (!categoryFilterActive ? true : selectedCategories.has(place.category)))
       .sort((a, b) => a.distance - b.distance);
   }, [placesWithDistance, radius, searchTerm, selectedCategories]);
 
@@ -194,7 +174,7 @@ export default function HomePage() {
   const miniPlaces = filteredPlaces.slice(0, 3);
 
   useEffect(() => {
-    if (selectedPlace && !filteredPlaces.find((place) => place.place_id === selectedPlace.place_id)) {
+    if (selectedPlace && !filteredPlaces.find((p) => p.place_id === selectedPlace.place_id)) {
       setSelectedPlace(null);
       setSheetMode('collapsed');
     }
@@ -207,8 +187,7 @@ export default function HomePage() {
   const handleToggleCategory = (category: string) => {
     setSelectedCategories((prev) => {
       const next = new Set(prev);
-      if (next.has(category)) next.delete(category);
-      else next.add(category);
+      next.has(category) ? next.delete(category) : next.add(category);
       return next;
     });
   };
@@ -218,7 +197,8 @@ export default function HomePage() {
     setSheetMode('detail');
   };
 
-  const handleBackToList = () => {
+  // ✅ “뒤로가기/해제”는 한 함수로 통일 (상세 → 목록)
+  const clearSelectionToList = () => {
     setSelectedPlace(null);
     setSheetMode('expanded');
   };
@@ -241,7 +221,6 @@ export default function HomePage() {
 
   const mapSubtitle = `회사 기준 반경 ${radius}m · ${filteredPlaces.length}곳`;
 
-  // ✅ MapView용 데이터로 변환 (MapView는 id 필드 사용)
   const mapPlaces = useMemo(
     () =>
       filteredPlaces.map((p) => ({
@@ -254,15 +233,31 @@ export default function HomePage() {
     [filteredPlaces]
   );
 
-  // ✅ 핵심: 지도 마커 클릭으로 들어온 placeId를 selectedPlace로 바꿔주는 함수
   const handleSelectPlaceIdFromMap = (placeId: string) => {
     const found = filteredPlaces.find((p) => p.place_id === placeId);
     if (!found) return;
     handleSelectPlace(found);
   };
 
+  // ✅ “메뉴/시트/지도 제외한 곳” 클릭 시 자동으로 선택 해제
+  const handleGlobalPointerDownCapture = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!selectedPlace) return;
+
+    const target = event.target as HTMLElement | null;
+    if (!target) return;
+
+    // 바텀시트 / 하단 메뉴 클릭은 유지
+    if (target.closest('.bottom-sheet') || target.closest('.bottom-nav')) return;
+
+    // 지도 영역 클릭은 MapView에서 처리(배경 클릭 시 해제 / 마커 클릭 시 선택)
+    if (target.closest('.map-view__map')) return;
+
+    // 그 외 영역 클릭 => 선택 해제
+    clearSelectionToList();
+  };
+
   return (
-    <div className="app-shell">
+    <div className="app-shell" onPointerDownCapture={handleGlobalPointerDownCapture}>
       {tab !== 'settings' && (
         <div className="top-bar">
           <div className="search-row">
@@ -304,6 +299,7 @@ export default function HomePage() {
             selectedCategories={Array.from(selectedCategories)}
             selectedPlaceId={selectedPlace?.place_id ?? null}
             onSelectPlaceId={handleSelectPlaceIdFromMap}
+            onClearSelection={clearSelectionToList} // ✅ 지도 배경 클릭 시 해제
           />
 
           <BottomSheet mode={sheetMode} onModeChange={setSheetMode}>
@@ -334,8 +330,9 @@ export default function HomePage() {
 
                     {selectedPlace && (
                       <>
-                        <button type="button" className="link-button" onClick={handleBackToList}>
-                          목록
+                        {/* ✅ 뒤로가기 버튼 */}
+                        <button type="button" className="link-button" onClick={clearSelectionToList}>
+                          뒤로
                         </button>
 
                         <a
@@ -347,7 +344,7 @@ export default function HomePage() {
                             dlat: selectedPlace.lat,
                             dlng: selectedPlace.lng,
                             dname: selectedPlace.name,
-                            mode: 'walk', // ✅ 도보 길찾기 (원하면 'car'로 변경)
+                            mode: 'walk',
                           })}
                           target="_blank"
                           rel="noopener noreferrer"
