@@ -64,11 +64,7 @@ textarea {
   z-index: 10;
   padding: 12px 16px 8px;
   backdrop-filter: blur(16px);
-  background: rgba(245, 246, 248, 0.8);
-}
-
-[data-theme='dark'] .top-bar {
-  background: rgba(15, 17, 21, 0.8);
+  background: color-mix(in srgb, var(--bg) 80%, transparent);
 }
 
 .search-row {
@@ -128,15 +124,11 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  background: rgba(255, 255, 255, 0.8);
+  background: color-mix(in srgb, var(--card) 80%, transparent);
   padding: 10px 12px;
   border-radius: 12px;
   border: 1px solid var(--border);
   font-size: 12px;
-}
-
-[data-theme='dark'] .map-view__overlay {
-  background: rgba(27, 31, 42, 0.8);
 }
 
 .map-view__selected {
@@ -159,7 +151,7 @@ textarea {
   font-size: 12px;
 }
 
-/* ✅ 핵심: 시트가 바닥까지 붙고(0), 충분히 위로 올라오게(90vh) */
+/* ✅ BottomSheet */
 .bottom-sheet {
   position: fixed;
   left: 0;
@@ -176,17 +168,33 @@ textarea {
   overflow: hidden;
 }
 
-.bottom-sheet__handle {
-  display: flex;
-  justify-content: center;
-  padding: 12px;
+/* ✅ 토글 버튼 영역(버튼과 목록 사이 여백 확보) */
+.bottom-sheet__top {
+  padding: 12px 16px 8px;
 }
 
-.bottom-sheet__handle span {
-  width: 40px;
-  height: 4px;
-  border-radius: 999px;
-  background: var(--border);
+/* ✅ 토글 버튼: 목록 보기 / 지도 보기 (튀지 않게, 라이트/다크 조화) */
+.sheet-toggle-button {
+  width: 100%;
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 14px;
+  font-weight: 600;
+
+  background: color-mix(in srgb, var(--accent) 14%, var(--card));
+  color: var(--text);
+
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  box-shadow: none;
+}
+
+.sheet-toggle-button:active {
+  transform: translateY(1px);
+}
+
+.sheet-toggle-button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  outline-offset: 2px;
 }
 
 .bottom-sheet__content {
@@ -203,11 +211,7 @@ textarea {
   border-radius: 16px;
   border: 1px solid var(--border);
   padding: 12px;
-  background: rgba(255, 255, 255, 0.9);
-}
-
-[data-theme='dark'] .summary-card {
-  background: rgba(27, 31, 42, 0.9);
+  background: color-mix(in srgb, var(--card) 90%, transparent);
 }
 
 .badge {
@@ -278,38 +282,6 @@ textarea {
 
 .primary-button:disabled {
   opacity: 0.5;
-}
-
-/* ✅ BottomSheet 상단 토글 버튼: 목록 보기 / 지도 보기 (색만 은은하게) */
-.sheet-toggle-button {
-  width: 100%;
-  border-radius: 12px;
-  padding: 10px 12px;
-  font-size: 14px;
-  font-weight: 600;
-
-  /* 라이트 모드: 은은한 네이비 톤 */
-  background: rgba(17, 24, 39, 0.10);
-  color: var(--text);
-  border: 1px solid rgba(15, 23, 42, 0.12);
-
-  box-shadow: none;
-  cursor: pointer;
-}
-
-[data-theme='dark'] .sheet-toggle-button {
-  /* 다크 모드: 카드 위에서 보이게 살짝 밝게 */
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.10);
-}
-
-.sheet-toggle-button:active {
-  transform: translateY(1px);
-}
-
-.sheet-toggle-button:focus-visible {
-  outline: 2px solid rgba(59, 130, 246, 0.35);
-  outline-offset: 2px;
 }
 
 .state-box {
