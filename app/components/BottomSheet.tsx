@@ -52,7 +52,7 @@ export default function BottomSheet({ mode, onModeChange, children }: BottomShee
       }}
     >
       {/* ✅ 핸들 대신 토글 버튼 */}
-      <div style={{ padding: '10px 12px 0' }}>
+      <div style={{ padding: '10px 12px 0', marginBottom: 16 }}>
         <button
           type="button"
           onClick={handleToggle}
@@ -62,6 +62,14 @@ export default function BottomSheet({ mode, onModeChange, children }: BottomShee
             borderRadius: 12,
             padding: '10px 12px',
             fontSize: 14,
+
+            // ✅ 조화형(튀지 않는) 버튼 톤: 라이트/다크 모두 자연스럽게
+            background: 'color-mix(in srgb, var(--accent) 85%, transparent)',
+            color: 'var(--card)',
+            border: '1px solid color-mix(in srgb, var(--card) 18%, transparent)',
+
+            // primary-button의 강한 스타일을 확실히 덮기 위한 안전장치
+            boxShadow: 'none',
           }}
         >
           {buttonLabel}
